@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,6 +47,16 @@ interface ProgramFormData {
 				}>;
 			}>;
 		};
+		cgpaConfig?: {
+			gradePoints: Array<{
+				grade: string;
+				points: number;
+				minPercentage: number;
+				maxPercentage: number;
+			}>;
+			semesterWeightage: boolean;
+			includeBacklogs: boolean;
+		};
 	};
 }
 
@@ -54,6 +65,22 @@ interface ProgramFormProps {
 	coordinators: any[];
 	onSuccess: () => void;
 }
+
+const defaultCGPAConfig = {
+	gradePoints: [
+		{ grade: 'A+', points: 4.0, minPercentage: 90, maxPercentage: 100 },
+		{ grade: 'A', points: 3.7, minPercentage: 85, maxPercentage: 89 },
+		{ grade: 'A-', points: 3.3, minPercentage: 80, maxPercentage: 84 },
+		{ grade: 'B+', points: 3.0, minPercentage: 75, maxPercentage: 79 },
+		{ grade: 'B', points: 2.7, minPercentage: 70, maxPercentage: 74 },
+		{ grade: 'C+', points: 2.3, minPercentage: 65, maxPercentage: 69 },
+		{ grade: 'C', points: 2.0, minPercentage: 60, maxPercentage: 64 },
+		{ grade: 'D', points: 1.0, minPercentage: 50, maxPercentage: 59 },
+		{ grade: 'F', points: 0.0, minPercentage: 0, maxPercentage: 49 }
+	],
+	semesterWeightage: false,
+	includeBacklogs: false
+};
 
 const defaultRubric = {
 	name: 'Default Rubric',
@@ -208,6 +235,28 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 				});
 				return false;
 			}
+		} else if (formData.assessmentSystem.type === AssessmentSystemType.CGPA) {
+			const { cgpaConfig } = formData.assessmentSystem;
+			if (!cgpaConfig || !cgpaConfig.gradePoints.length) {
+				toast({
+					title: "Error",
+					description: "CGPA grade points configuration is required",
+					variant: "destructive",
+				});
+				return false;
+			}
+
+			// Validate grade points
+			for (const grade of cgpaConfig.gradePoints) {
+				if (!grade.grade || grade.points < 0 || grade.minPercentage < 0 || grade.maxPercentage > 100) {
+					toast({
+						title: "Error",
+						description: "Invalid grade points configuration",
+						variant: "destructive",
+					});
+					return false;
+				}
+			}
 		}
 
 		return true;
@@ -231,9 +280,11 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 							{ grade: 'F', minPercentage: 0, maxPercentage: 39 }
 						]
 					}
-				} : {
+				} : type === AssessmentSystemType.RUBRIC ? {
 					rubric: defaultRubric
-				})
+				} : type === AssessmentSystemType.CGPA ? {
+					cgpaConfig: defaultCGPAConfig
+				} : {})
 			}
 		});
 	};
@@ -585,6 +636,133 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 											</div>
 										</div>
 									))}
+								</div>
+							</div>
+						)}
+
+						{formData.assessmentSystem.type === AssessmentSystemType.CGPA && (
+							<div className="space-y-4">
+								<div>
+									<Label>Grade Points Configuration</Label>
+									{formData.assessmentSystem.cgpaConfig?.gradePoints.map((grade, index) => (
+										<div key={index} className="grid grid-cols-4 gap-2 mt-2">
+											<Input
+												placeholder="Grade"
+												value={grade.grade}
+												onChange={(e) => {
+													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+													newGradePoints[index] = { ...grade, grade: e.target.value };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															cgpaConfig: {
+																...formData.assessmentSystem.cgpaConfig!,
+																gradePoints: newGradePoints
+															}
+														}
+													});
+												}}
+											/>
+											<Input
+												type="number"
+												placeholder="Points"
+												value={grade.points}
+												onChange={(e) => {
+													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+													newGradePoints[index] = { ...grade, points: Number(e.target.value) };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															cgpaConfig: {
+																...formData.assessmentSystem.cgpaConfig!,
+																gradePoints: newGradePoints
+															}
+														}
+													});
+												}}
+											/>
+											<Input
+												type="number"
+												placeholder="Min %"
+												value={grade.minPercentage}
+												onChange={(e) => {
+													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+													newGradePoints[index] = { ...grade, minPercentage: Number(e.target.value) };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															cgpaConfig: {
+																...formData.assessmentSystem.cgpaConfig!,
+																gradePoints: newGradePoints
+															}
+														}
+													});
+												}}
+											/>
+											<Input
+												type="number"
+												placeholder="Max %"
+												value={grade.maxPercentage}
+												onChange={(e) => {
+													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+													newGradePoints[index] = { ...grade, maxPercentage: Number(e.target.value) };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															cgpaConfig: {
+																...formData.assessmentSystem.cgpaConfig!,
+																gradePoints: newGradePoints
+															}
+														}
+													});
+												}}
+											/>
+										</div>
+									))}
+								</div>
+
+								<div className="flex items-center space-x-2">
+									<Checkbox
+										id="semesterWeightage"
+										checked={formData.assessmentSystem.cgpaConfig?.semesterWeightage}
+										onCheckedChange={(checked) => {
+											setFormData({
+												...formData,
+												assessmentSystem: {
+													...formData.assessmentSystem,
+													cgpaConfig: {
+														...formData.assessmentSystem.cgpaConfig!,
+														semesterWeightage: checked as boolean
+													}
+												}
+											});
+										}}
+									/>
+									<Label htmlFor="semesterWeightage">Apply semester weightage</Label>
+								</div>
+
+								<div className="flex items-center space-x-2">
+									<Checkbox
+										id="includeBacklogs"
+										checked={formData.assessmentSystem.cgpaConfig?.includeBacklogs}
+										onCheckedChange={(checked) => {
+											setFormData({
+												...formData,
+												assessmentSystem: {
+													...formData.assessmentSystem,
+													cgpaConfig: {
+														...formData.assessmentSystem.cgpaConfig!,
+														includeBacklogs: checked as boolean
+													}
+												}
+											});
+										}}
+									/>
+									<Label htmlFor="includeBacklogs">Include backlogs in CGPA calculation</Label>
 								</div>
 							</div>
 						)}

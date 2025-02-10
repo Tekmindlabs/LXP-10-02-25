@@ -1,15 +1,30 @@
+export interface CGPAGradePoint {
+	grade: string;
+	points: number;
+	minPercentage: number;
+	maxPercentage: number;
+}
+
+export interface CGPAConfig {
+	gradePoints: CGPAGradePoint[];
+	semesterWeightage: boolean;
+	includeBacklogs: boolean;
+}
+
 export interface AssessmentSystem {
 	id?: string;
 	name: string;
 	description?: string;
 	type: AssessmentSystemType;
 	programId: string;
+	cgpaConfig?: CGPAConfig;
 }
 
 export enum AssessmentSystemType {
 	MARKING_SCHEME = 'MARKING_SCHEME',
 	RUBRIC = 'RUBRIC',
-	HYBRID = 'HYBRID'
+	HYBRID = 'HYBRID',
+	CGPA = 'CGPA'
 }
 
 export interface MarkingScheme {

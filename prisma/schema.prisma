@@ -505,6 +505,9 @@ model AssessmentSystem {
   program     Program  @relation(fields: [programId], references: [id])
   programId   String   @unique
   
+  // CGPA Configuration
+  cgpaConfig  Json? // Stores grade points, semester weightage, and backlog settings
+  
   // Relations
   markingSchemes MarkingScheme[]
   rubrics        Rubric[]
@@ -962,6 +965,7 @@ enum AssessmentSystemType {
   MARKING_SCHEME
   RUBRIC
   HYBRID
+  CGPA
 }
 
 enum AssessmentType {
