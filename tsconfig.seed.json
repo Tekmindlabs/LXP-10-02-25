@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "target": "es2017",
+        "module": "CommonJS",
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "outDir": "./dist",
+        "downlevelIteration": true,
+        "resolveJsonModule": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
+        "baseUrl": ".",
+        "paths": {
+            "@/*": ["./src/*"]
+        },
+        "skipLibCheck": true
+    },
+    "include": ["prisma/**/*"],
+    "exclude": ["node_modules"]
+}
