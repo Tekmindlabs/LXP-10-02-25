@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AssessmentSystemType } from "@/types/assessment";
 
 interface ProgramListProps {
 	programs: Array<{
@@ -19,6 +20,31 @@ interface ProgramListProps {
 		calendar?: { name: string } | null;
 		coordinator?: { user: { name: string } } | null;
 		classGroups?: any[];
+		assessmentSystem?: {
+			type: AssessmentSystemType;
+			markingScheme?: {
+				maxMarks: number;
+				passingMarks: number;
+				gradingScale: Array<{
+					grade: string;
+					minPercentage: number;
+					maxPercentage: number;
+				}>;
+			};
+			rubric?: {
+				name: string;
+				description?: string;
+				criteria: Array<{
+					name: string;
+					description?: string;
+					levels: Array<{
+						name: string;
+						points: number;
+						description?: string;
+					}>;
+				}>;
+			};
+		};
 	}>;
 	onSelect: (id: string) => void;
 	calendars: Array<{ id: string; name: string }>;
@@ -108,6 +134,37 @@ export const ProgramList = ({
 							<p>Coordinator: {program.coordinator?.user.name || 'Not assigned'}</p>
 							<p>Status: {program.status}</p>
 							<p>Class Groups: {program.classGroups?.length || 0}</p>
+							
+							{program.assessmentSystem && (
+								<div className="mt-4 space-y-2">
+									<h4 className="font-semibold">Assessment System</h4>
+									<p>Type: {program.assessmentSystem.type.replace('_', ' ')}</p>
+									
+									{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && program.assessmentSystem.markingScheme && (
+										<div className="pl-4">
+											<p>Max Marks: {program.assessmentSystem.markingScheme.maxMarks}</p>
+											<p>Passing Marks: {program.assessmentSystem.markingScheme.passingMarks}</p>
+											<div className="mt-2">
+												<p className="font-medium">Grading Scale:</p>
+												<div className="grid grid-cols-3 gap-2 text-sm">
+													{program.assessmentSystem.markingScheme.gradingScale.map((grade, index) => (
+														<div key={index} className="bg-secondary p-1 rounded">
+															{grade.grade}: {grade.minPercentage}%-{grade.maxPercentage}%
+														</div>
+													))}
+												</div>
+											</div>
+										</div>
+									)}
+									
+									{program.assessmentSystem.type === AssessmentSystemType.RUBRIC && program.assessmentSystem.rubric && (
+										<div className="pl-4">
+											<p>Rubric Name: {program.assessmentSystem.rubric.name}</p>
+											<p>Criteria Count: {program.assessmentSystem.rubric.criteria.length}</p>
+										</div>
+									)}
+								</div>
+							)}
 						</div>
 					</CardContent>
 				</Card>

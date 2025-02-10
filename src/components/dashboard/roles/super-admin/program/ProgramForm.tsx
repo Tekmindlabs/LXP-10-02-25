@@ -13,6 +13,7 @@ import { api } from "@/utils/api";
 import { Status } from "@prisma/client";
 import { toast } from "@/hooks/use-toast";
 import type { TRPCClientErrorLike } from "@trpc/client";
+import { AssessmentSystemType } from "@/types/assessment";
 
 
 interface ProgramFormData {
@@ -21,6 +22,31 @@ interface ProgramFormData {
 	calendarId: string;
 	coordinatorId?: string;
 	status: Status;
+	assessmentSystem: {
+		type: AssessmentSystemType;
+		markingScheme?: {
+			maxMarks: number;
+			passingMarks: number;
+			gradingScale: Array<{
+				grade: string;
+				minPercentage: number;
+				maxPercentage: number;
+			}>;
+		};
+		rubric?: {
+			name: string;
+			description?: string;
+			criteria: Array<{
+				name: string;
+				description?: string;
+				levels: Array<{
+					name: string;
+					points: number;
+					description?: string;
+				}>;
+			}>;
+		};
+	};
 }
 
 interface ProgramFormProps {
@@ -36,6 +62,21 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 		calendarId: selectedProgram?.calendarId || "NO_SELECTION",
 		coordinatorId: selectedProgram?.coordinatorId || "NO_SELECTION",
 		status: selectedProgram?.status || Status.ACTIVE,
+		assessmentSystem: selectedProgram?.assessmentSystem || {
+			type: AssessmentSystemType.MARKING_SCHEME,
+			markingScheme: {
+				maxMarks: 100,
+				passingMarks: 40,
+				gradingScale: [
+					{ grade: 'A', minPercentage: 80, maxPercentage: 100 },
+					{ grade: 'B', minPercentage: 70, maxPercentage: 79 },
+					{ grade: 'C', minPercentage: 60, maxPercentage: 69 },
+					{ grade: 'D', minPercentage: 50, maxPercentage: 59 },
+					{ grade: 'E', minPercentage: 40, maxPercentage: 49 },
+					{ grade: 'F', minPercentage: 0, maxPercentage: 39 }
+				]
+			}
+		}
 	}));
 
 	const { 
@@ -233,6 +274,237 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 								))}
 							</SelectContent>
 						</Select>
+					</div>
+
+					<div className="space-y-4 border p-4 rounded-lg">
+						<h3 className="text-lg font-semibold">Assessment System</h3>
+						
+						<div>
+							<Label>Assessment Type</Label>
+							<Select
+								value={formData.assessmentSystem.type}
+								onValueChange={(value) => setFormData({
+									...formData,
+									assessmentSystem: {
+										...formData.assessmentSystem,
+										type: value as AssessmentSystemType
+									}
+								})}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select Assessment Type" />
+								</SelectTrigger>
+								<SelectContent>
+									{Object.values(AssessmentSystemType).map((type) => (
+										<SelectItem key={type} value={type}>
+											{type.replace('_', ' ')}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+
+						{formData.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && (
+							<div className="space-y-4">
+								<div className="grid grid-cols-2 gap-4">
+									<div>
+										<Label>Maximum Marks</Label>
+										<Input
+											type="number"
+											value={formData.assessmentSystem.markingScheme?.maxMarks}
+											onChange={(e) => setFormData({
+												...formData,
+												assessmentSystem: {
+													...formData.assessmentSystem,
+													markingScheme: {
+														...formData.assessmentSystem.markingScheme!,
+														maxMarks: Number(e.target.value)
+													}
+												}
+											})}
+										/>
+									</div>
+									<div>
+										<Label>Passing Marks</Label>
+										<Input
+											type="number"
+											value={formData.assessmentSystem.markingScheme?.passingMarks}
+											onChange={(e) => setFormData({
+												...formData,
+												assessmentSystem: {
+													...formData.assessmentSystem,
+													markingScheme: {
+														...formData.assessmentSystem.markingScheme!,
+														passingMarks: Number(e.target.value)
+													}
+												}
+											})}
+										/>
+									</div>
+								</div>
+
+								<div>
+									<Label>Grading Scale</Label>
+									{formData.assessmentSystem.markingScheme?.gradingScale.map((grade, index) => (
+										<div key={index} className="grid grid-cols-3 gap-2 mt-2">
+											<Input
+												placeholder="Grade"
+												value={grade.grade}
+												onChange={(e) => {
+													const newScale = [...formData.assessmentSystem.markingScheme!.gradingScale];
+													newScale[index] = { ...grade, grade: e.target.value };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															markingScheme: {
+																...formData.assessmentSystem.markingScheme!,
+																gradingScale: newScale
+															}
+														}
+													});
+												}}
+											/>
+											<Input
+												type="number"
+												placeholder="Min %"
+												value={grade.minPercentage}
+												onChange={(e) => {
+													const newScale = [...formData.assessmentSystem.markingScheme!.gradingScale];
+													newScale[index] = { ...grade, minPercentage: Number(e.target.value) };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															markingScheme: {
+																...formData.assessmentSystem.markingScheme!,
+																gradingScale: newScale
+															}
+														}
+													});
+												}}
+											/>
+											<Input
+												type="number"
+												placeholder="Max %"
+												value={grade.maxPercentage}
+												onChange={(e) => {
+													const newScale = [...formData.assessmentSystem.markingScheme!.gradingScale];
+													newScale[index] = { ...grade, maxPercentage: Number(e.target.value) };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															markingScheme: {
+																...formData.assessmentSystem.markingScheme!,
+																gradingScale: newScale
+															}
+														}
+													});
+												}}
+											/>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+
+						{formData.assessmentSystem.type === AssessmentSystemType.RUBRIC && (
+							<div className="space-y-4">
+								<div>
+									<Label>Rubric Name</Label>
+									<Input
+										value={formData.assessmentSystem.rubric?.name || ''}
+										onChange={(e) => setFormData({
+											...formData,
+											assessmentSystem: {
+												...formData.assessmentSystem,
+												rubric: {
+													...formData.assessmentSystem.rubric!,
+													name: e.target.value
+												}
+											}
+										})}
+									/>
+								</div>
+
+								<div>
+									<Label>Criteria</Label>
+									{formData.assessmentSystem.rubric?.criteria.map((criterion, index) => (
+										<div key={index} className="space-y-2 mt-2 p-2 border rounded">
+											<Input
+												placeholder="Criterion Name"
+												value={criterion.name}
+												onChange={(e) => {
+													const newCriteria = [...formData.assessmentSystem.rubric!.criteria];
+													newCriteria[index] = { ...criterion, name: e.target.value };
+													setFormData({
+														...formData,
+														assessmentSystem: {
+															...formData.assessmentSystem,
+															rubric: {
+																...formData.assessmentSystem.rubric!,
+																criteria: newCriteria
+															}
+														}
+													});
+												}}
+											/>
+											
+											<div className="space-y-2">
+												{criterion.levels.map((level, levelIndex) => (
+													<div key={levelIndex} className="grid grid-cols-2 gap-2">
+														<Input
+															placeholder="Level Name"
+															value={level.name}
+															onChange={(e) => {
+																const newCriteria = [...formData.assessmentSystem.rubric!.criteria];
+																newCriteria[index].levels[levelIndex] = {
+																	...level,
+																	name: e.target.value
+																};
+																setFormData({
+																	...formData,
+																	assessmentSystem: {
+																		...formData.assessmentSystem,
+																		rubric: {
+																			...formData.assessmentSystem.rubric!,
+																			criteria: newCriteria
+																		}
+																	}
+																});
+															}}
+														/>
+														<Input
+															type="number"
+															placeholder="Points"
+															value={level.points}
+															onChange={(e) => {
+																const newCriteria = [...formData.assessmentSystem.rubric!.criteria];
+																newCriteria[index].levels[levelIndex] = {
+																	...level,
+																	points: Number(e.target.value)
+																};
+																setFormData({
+																	...formData,
+																	assessmentSystem: {
+																		...formData.assessmentSystem,
+																		rubric: {
+																			...formData.assessmentSystem.rubric!,
+																			criteria: newCriteria
+																		}
+																	}
+																});
+															}}
+														/>
+													</div>
+												))}
+											</div>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
 					</div>
 
 					<Button type="submit" className="w-full" disabled={createMutation.status === 'pending' || updateMutation.status === 'pending'}>

@@ -3,6 +3,43 @@ import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 
+const includeConfig = {
+  coordinator: {
+    include: {
+      user: true,
+    },
+  },
+  calendar: true,
+  classGroups: {
+    include: {
+      classes: {
+        include: {
+          students: true,
+          teachers: true,
+        },
+      },
+    },
+  },
+  assessmentSystem: {
+    include: {
+      markingSchemes: {
+        include: {
+          gradingScale: true
+        }
+      },
+      rubrics: {
+        include: {
+          criteria: {
+            include: {
+              levels: true
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
 export const programRouter = createTRPCRouter({
   getAll: protectedProcedure
     .input(
@@ -29,24 +66,8 @@ export const programRouter = createTRPCRouter({
           where,
           skip: (input.page - 1) * input.pageSize,
           take: input.pageSize,
-          include: {
-            coordinator: {
-              include: {
-                user: true,
-              },
-            },
-            calendar: true,
-            classGroups: {
-              include: {
-                classes: {
-                  include: {
-                    students: true,
-                    teachers: true,
-                  },
-                },
-              },
-            },
-          },
+            include: includeConfig,
+
           orderBy: {
             name: 'asc',
           },
@@ -164,6 +185,31 @@ export const programRouter = createTRPCRouter({
         calendarId: z.string(),
         coordinatorId: z.string().optional(),
         status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).default("ACTIVE"),
+        assessmentSystem: z.object({
+          type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID"]),
+          markingScheme: z.object({
+            maxMarks: z.number(),
+            passingMarks: z.number(),
+            gradingScale: z.array(z.object({
+              grade: z.string(),
+              minPercentage: z.number(),
+              maxPercentage: z.number()
+            }))
+          }).optional(),
+          rubric: z.object({
+            name: z.string(),
+            description: z.string().optional(),
+            criteria: z.array(z.object({
+              name: z.string(),
+              description: z.string().optional(),
+              levels: z.array(z.object({
+                name: z.string(),
+                points: z.number(),
+                description: z.string().optional()
+              }))
+            }))
+          }).optional()
+        }).optional()
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -196,26 +242,59 @@ export const programRouter = createTRPCRouter({
 
         const program = await ctx.prisma.program.create({
           data: {
-            name: input.name,
-            description: input.description,
-            calendar: {
-              connect: { id: input.calendarId }
-            },
-            coordinator: input.coordinatorId
-              ? {
-                  connect: { id: input.coordinatorId },
+          name: input.name,
+          description: input.description,
+          calendar: {
+            connect: { id: input.calendarId }
+          },
+          coordinator: input.coordinatorId
+            ? {
+              connect: { id: input.coordinatorId },
+            }
+            : undefined,
+          status: input.status,
+          ...(input.assessmentSystem && {
+            assessmentSystem: {
+            create: {
+              type: input.assessmentSystem.type,
+              ...(input.assessmentSystem.markingScheme && {
+              markingSchemes: {
+                create: {
+                name: "Default Marking Scheme",
+                maxMarks: input.assessmentSystem.markingScheme.maxMarks,
+                passingMarks: input.assessmentSystem.markingScheme.passingMarks,
+                gradingScale: {
+                  createMany: {
+                  data: input.assessmentSystem.markingScheme.gradingScale
+                  }
                 }
-              : undefined,
-            status: input.status,
+                }
+              }
+              }),
+              ...(input.assessmentSystem.rubric && {
+              rubrics: {
+                create: {
+                name: input.assessmentSystem.rubric.name,
+                description: input.assessmentSystem.rubric.description,
+                criteria: {
+                  create: input.assessmentSystem.rubric.criteria.map(criterion => ({
+                  name: criterion.name,
+                  description: criterion.description,
+                  levels: {
+                    createMany: {
+                    data: criterion.levels
+                    }
+                  }
+                  }))
+                }
+                }
+              }
+              })
+            }
+            }
+          })
           },
-          include: {
-            coordinator: {
-              include: {
-                user: true,
-              },
-            },
-            calendar: true,
-          },
+          include: includeConfig
         });
 
         return program;
@@ -232,12 +311,37 @@ export const programRouter = createTRPCRouter({
   update: protectedProcedure
     .input(
       z.object({
-        id: z.string(),
-        name: z.string().optional(),
+      id: z.string(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      calendarId: z.string().optional(),
+      coordinatorId: z.string().optional(),
+      status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).optional(),
+      assessmentSystem: z.object({
+        type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID"]),
+        markingScheme: z.object({
+        maxMarks: z.number(),
+        passingMarks: z.number(),
+        gradingScale: z.array(z.object({
+          grade: z.string(),
+          minPercentage: z.number(),
+          maxPercentage: z.number()
+        }))
+        }).optional(),
+        rubric: z.object({
+        name: z.string(),
         description: z.string().optional(),
-        calendarId: z.string().optional(),
-        coordinatorId: z.string().optional(),
-        status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).optional(),
+        criteria: z.array(z.object({
+          name: z.string(),
+          description: z.string().optional(),
+          levels: z.array(z.object({
+          name: z.string(),
+          points: z.number(),
+          description: z.string().optional()
+          }))
+        }))
+        }).optional()
+      }).optional()
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -282,23 +386,96 @@ export const programRouter = createTRPCRouter({
           }
         }
 
-        const { id, calendarId, coordinatorId, ...data } = input;
+        const { id, calendarId, coordinatorId, assessmentSystem, ...data } = input;
         
         const updatedProgram = await ctx.prisma.Program.update({
           where: { id },
           data: {
-            ...data,
-            calendar: calendarId ? { connect: { id: calendarId } } : undefined,
-            coordinator: coordinatorId ? { connect: { id: coordinatorId } } : undefined
-          },
-          include: {
-            coordinator: {
-              include: {
-                user: true,
+          ...data,
+          calendar: calendarId ? { connect: { id: calendarId } } : undefined,
+          coordinator: coordinatorId ? { connect: { id: coordinatorId } } : undefined,
+          ...(assessmentSystem && {
+            assessmentSystem: {
+            upsert: {
+              create: {
+              type: assessmentSystem.type,
+              ...(assessmentSystem.markingScheme && {
+                markingSchemes: {
+                create: {
+                  name: "Default Marking Scheme",
+                  maxMarks: assessmentSystem.markingScheme.maxMarks,
+                  passingMarks: assessmentSystem.markingScheme.passingMarks,
+                  gradingScale: {
+                  createMany: {
+                    data: assessmentSystem.markingScheme.gradingScale
+                  }
+                  }
+                }
+                }
+              }),
+              ...(assessmentSystem.rubric && {
+                rubrics: {
+                create: {
+                  name: assessmentSystem.rubric.name,
+                  description: assessmentSystem.rubric.description,
+                  criteria: {
+                  create: assessmentSystem.rubric.criteria.map(criterion => ({
+                    name: criterion.name,
+                    description: criterion.description,
+                    levels: {
+                    createMany: {
+                      data: criterion.levels
+                    }
+                    }
+                  }))
+                  }
+                }
+                }
+              })
               },
-            },
-            calendar: true,
+              update: {
+              type: assessmentSystem.type,
+              ...(assessmentSystem.markingScheme && {
+                markingSchemes: {
+                deleteMany: {},
+                create: {
+                  name: "Default Marking Scheme",
+                  maxMarks: assessmentSystem.markingScheme.maxMarks,
+                  passingMarks: assessmentSystem.markingScheme.passingMarks,
+                  gradingScale: {
+                  createMany: {
+                    data: assessmentSystem.markingScheme.gradingScale
+                  }
+                  }
+                }
+                }
+              }),
+              ...(assessmentSystem.rubric && {
+                rubrics: {
+                deleteMany: {},
+                create: {
+                  name: assessmentSystem.rubric.name,
+                  description: assessmentSystem.rubric.description,
+                  criteria: {
+                  create: assessmentSystem.rubric.criteria.map(criterion => ({
+                    name: criterion.name,
+                    description: criterion.description,
+                    levels: {
+                    createMany: {
+                      data: criterion.levels
+                    }
+                    }
+                  }))
+                  }
+                }
+                }
+              })
+              }
+            }
+            }
+          })
           },
+          include: includeConfig
         });
 
         return updatedProgram;

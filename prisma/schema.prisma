@@ -225,18 +225,19 @@ model Week {
 }
 
 model Program {
-  id             String                 @id @default(cuid())
-  name           String?                @unique
-  description    String?
-  status         Status                 @default(ACTIVE)
-  coordinator    CoordinatorProfile?    @relation(fields: [coordinatorId], references: [id])
-  coordinatorId  String?
-  calendar       Calendar               @relation(fields: [calendarId], references: [id])
-  calendarId     String
-  classGroups    ClassGroup[]
-  termStructures ProgramTermStructure[]
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  id              String                 @id @default(cuid())
+  name            String?                @unique
+  description     String?
+  status          Status                 @default(ACTIVE)
+  coordinator     CoordinatorProfile?    @relation(fields: [coordinatorId], references: [id])
+  coordinatorId   String?
+  calendar        Calendar               @relation(fields: [calendarId], references: [id])
+  calendarId      String
+  classGroups     ClassGroup[]
+  termStructures  ProgramTermStructure[]
+  assessmentSystem AssessmentSystem?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   @@map("programs")
 }
@@ -493,6 +494,141 @@ model ActivitySubmission {
   @@unique([activityId, studentId])
   @@index([activityId])
   @@index([studentId])
+}
+
+// Assessment and Grading Models
+model AssessmentSystem {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  type        AssessmentSystemType
+  program     Program  @relation(fields: [programId], references: [id])
+  programId   String   @unique
+  
+  // Relations
+  markingSchemes MarkingScheme[]
+  rubrics        Rubric[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("assessment_systems")
+}
+
+// Marking System
+model MarkingScheme {
+  id                String          @id @default(cuid())
+  name              String
+  maxMarks          Float
+  passingMarks      Float
+  assessmentSystem  AssessmentSystem @relation(fields: [assessmentSystemId], references: [id])
+  assessmentSystemId String
+  gradingScale      GradingScale[]
+  assessments       Assessment[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@map("marking_schemes")
+}
+
+model GradingScale {
+  id              String        @id @default(cuid())
+  grade           String
+  minPercentage   Float
+  maxPercentage   Float
+  markingScheme   MarkingScheme @relation(fields: [markingSchemeId], references: [id])
+  markingSchemeId String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("grading_scales")
+}
+
+// Rubric System
+model Rubric {
+  id                String           @id @default(cuid())
+  name              String
+  description       String?
+  assessmentSystem  AssessmentSystem @relation(fields: [assessmentSystemId], references: [id])
+  assessmentSystemId String
+  criteria          RubricCriteria[]
+  assessments       Assessment[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@map("rubrics")
+}
+
+model RubricCriteria {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  rubric      Rubric        @relation(fields: [rubricId], references: [id])
+  rubricId    String
+  levels      RubricLevel[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("rubric_criteria")
+}
+
+model RubricLevel {
+  id               String         @id @default(cuid())
+  name             String
+  description      String?
+  points           Float
+  rubricCriteria   RubricCriteria @relation(fields: [rubricCriteriaId], references: [id])
+  rubricCriteriaId String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@map("rubric_levels")
+}
+
+// Assessment Model linking both systems
+model Assessment {
+  id              String        @id @default(cuid())
+  title           String
+  description     String?
+  type            AssessmentType
+  totalPoints     Float
+  
+  // Optional relations to either marking scheme or rubric
+  markingScheme   MarkingScheme? @relation(fields: [markingSchemeId], references: [id])
+  markingSchemeId String?
+  rubric          Rubric?       @relation(fields: [rubricId], references: [id])
+  rubricId        String?
+  
+  submissions     AssessmentSubmission[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("assessments")
+}
+
+model AssessmentSubmission {
+  id           String     @id @default(cuid())
+  assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  assessmentId String
+  studentId    String
+  
+  // Marking scheme related fields
+  obtainedMarks Float?
+  percentage    Float?
+  grade         String?
+  
+  // Rubric related fields
+  rubricScores  Json?  // Store criteria-wise scores
+  totalScore    Float?
+  
+  feedback      String?
+  status        SubmissionStatus
+  submittedAt   DateTime @default(now())
+  gradedAt      DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("assessment_submissions")
 }
 
 // Timetable & Classroom Models
@@ -812,6 +948,28 @@ enum ActivitySubmissionStatus {
   GRADED
   LATE
   MISSED
+}
+
+enum SubmissionStatus {
+  PENDING
+  SUBMITTED
+  GRADED
+  LATE
+  MISSED
+}
+
+enum AssessmentSystemType {
+  MARKING_SCHEME
+  RUBRIC
+  HYBRID
+}
+
+enum AssessmentType {
+  QUIZ
+  ASSIGNMENT
+  PROJECT
+  EXAM
+  PRESENTATION
 }
 
 enum AttendanceStatus {

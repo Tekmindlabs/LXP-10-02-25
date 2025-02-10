@@ -24,6 +24,7 @@ import { messageRouter } from "./routers/message";
 import { notificationRouter } from "./routers/notification";
 import { classActivityRouter } from "./routers/class-activity";
 import { coordinatorRouter } from "./routers/coordinator";
+import { assessmentRouter } from "./routers/assessment";
 
 
 export const appRouter = createTRPCRouter({
@@ -52,6 +53,7 @@ export const appRouter = createTRPCRouter({
   academicYear: academicYearRouter,
   historicalData: historicalDataRouter,
   gradebook: gradebookRouter,
+  assessment: assessmentRouter,
 });
 
 

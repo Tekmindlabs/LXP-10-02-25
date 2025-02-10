@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Program, Status } from "@prisma/client";
+import { AssessmentSystemType } from "@/types/assessment";
 import { api } from "@/utils/api";
 import { ProgramList } from "./ProgramList";
 import { ProgramForm } from "./ProgramForm";
@@ -16,6 +17,31 @@ interface ProgramWithDetails extends Program {
 		};
 	} | null;
 	classGroups: any[]; // You can make this more specific based on your needs
+	assessmentSystem?: {
+		type: AssessmentSystemType;
+		markingScheme?: {
+			maxMarks: number;
+			passingMarks: number;
+			gradingScale: Array<{
+				grade: string;
+				minPercentage: number;
+				maxPercentage: number;
+			}>;
+		};
+		rubric?: {
+			name: string;
+			description?: string;
+			criteria: Array<{
+				name: string;
+				description?: string;
+				levels: Array<{
+					name: string;
+					points: number;
+					description?: string;
+				}>;
+			}>;
+		};
+	};
 }
 
 interface Filters {
@@ -23,6 +49,7 @@ interface Filters {
 	level?: string;
 	status?: Status;
 	calendarId?: string;
+	assessmentType?: AssessmentSystemType;
 	sortBy?: 'name' | 'level' | 'createdAt';
 	sortOrder?: 'asc' | 'desc';
 }
@@ -105,6 +132,22 @@ const associateCalendar = api.program.associateCalendar.useMutation({
 		{calendars?.map((calendar) => (
 			<SelectItem key={calendar.id} value={calendar.id}>
 				{calendar.name}
+			</SelectItem>
+		))}
+	</SelectContent>
+</Select>
+<Select
+	value={filters.assessmentType}
+	onValueChange={(value) => setFilters({ ...filters, assessmentType: value as AssessmentSystemType })}
+>
+	<SelectTrigger className="w-[200px]">
+		<SelectValue placeholder="Assessment System" />
+	</SelectTrigger>
+	<SelectContent>
+		<SelectItem value={undefined}>All Types</SelectItem>
+		{Object.values(AssessmentSystemType).map((type) => (
+			<SelectItem key={type} value={type}>
+				{type.replace('_', ' ')}
 			</SelectItem>
 		))}
 	</SelectContent>

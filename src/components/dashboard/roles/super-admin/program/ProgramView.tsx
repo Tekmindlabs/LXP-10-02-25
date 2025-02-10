@@ -8,6 +8,7 @@ import { columns } from "@/components/dashboard/roles/super-admin/class-group/co
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AssessmentSystemType } from "@/types/assessment";
 
 interface ProgramViewProps {
 	programId: string;
@@ -148,6 +149,82 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 
 				<Card>
 					<CardHeader>
+						<CardTitle>Assessment System</CardTitle>
+					</CardHeader>
+					<CardContent>
+						{program.assessmentSystem ? (
+							<dl className="space-y-4">
+								<div>
+									<dt className="text-sm font-medium text-gray-500">Type</dt>
+									<dd>{program.assessmentSystem.type.replace('_', ' ')}</dd>
+								</div>
+
+								{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && program.assessmentSystem.markingScheme && (
+									<>
+										<div>
+											<dt className="text-sm font-medium text-gray-500">Marking Scheme</dt>
+											<dd className="mt-1">
+												<div className="space-y-1">
+													<p>Maximum Marks: {program.assessmentSystem.markingScheme.maxMarks}</p>
+													<p>Passing Marks: {program.assessmentSystem.markingScheme.passingMarks}</p>
+												</div>
+											</dd>
+										</div>
+										<div>
+											<dt className="text-sm font-medium text-gray-500">Grading Scale</dt>
+											<dd className="mt-2">
+												<div className="grid grid-cols-2 gap-2">
+													{program.assessmentSystem.markingScheme.gradingScale.map((grade, index) => (
+														<div key={index} className="bg-secondary p-2 rounded text-sm">
+															<span className="font-medium">{grade.grade}:</span> {grade.minPercentage}% - {grade.maxPercentage}%
+														</div>
+													))}
+												</div>
+											</dd>
+										</div>
+									</>
+								)}
+
+								{program.assessmentSystem.type === AssessmentSystemType.RUBRIC && program.assessmentSystem.rubric && (
+									<>
+										<div>
+											<dt className="text-sm font-medium text-gray-500">Rubric Name</dt>
+											<dd>{program.assessmentSystem.rubric.name}</dd>
+										</div>
+										<div>
+											<dt className="text-sm font-medium text-gray-500">Criteria</dt>
+											<dd className="mt-2">
+												<div className="space-y-3">
+													{program.assessmentSystem.rubric.criteria.map((criterion, index) => (
+														<div key={index} className="bg-secondary p-3 rounded">
+															<h4 className="font-medium">{criterion.name}</h4>
+															{criterion.description && (
+																<p className="text-sm text-gray-600 mt-1">{criterion.description}</p>
+															)}
+															<div className="grid grid-cols-2 gap-2 mt-2">
+																{criterion.levels.map((level, levelIndex) => (
+																	<div key={levelIndex} className="bg-background p-2 rounded text-sm">
+																		<div className="font-medium">{level.name}</div>
+																		<div>Points: {level.points}</div>
+																	</div>
+																))}
+															</div>
+														</div>
+													))}
+												</div>
+											</dd>
+										</div>
+									</>
+								)}
+							</dl>
+						) : (
+							<p className="text-gray-500">No assessment system configured</p>
+						)}
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
 						<CardTitle>Students by Class Group</CardTitle>
 					</CardHeader>
 					<CardContent className="h-[200px]">
@@ -168,6 +245,7 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 				<TabsList>
 					<TabsTrigger value="classGroups">Class Groups</TabsTrigger>
 					<TabsTrigger value="activities">Recent Activities</TabsTrigger>
+					<TabsTrigger value="assessment">Assessment Details</TabsTrigger>
 				</TabsList>
 				<TabsContent value="classGroups">
 					<Card>
@@ -186,6 +264,41 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 						</CardHeader>
 						<CardContent>
 							<p>No recent activities</p>
+						</CardContent>
+					</Card>
+				</TabsContent>
+				<TabsContent value="assessment">
+					<Card>
+						<CardHeader>
+							<CardTitle>Assessment Configuration</CardTitle>
+						</CardHeader>
+						<CardContent>
+							{program.assessmentSystem ? (
+								<div className="space-y-6">
+									<div>
+										<h3 className="text-lg font-medium">Assessment Type: {program.assessmentSystem.type.replace('_', ' ')}</h3>
+										{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && (
+											<div className="mt-4">
+												<h4 className="font-medium">Performance Metrics</h4>
+												<div className="mt-2">
+													<ResponsiveContainer width="100%" height={300}>
+														<BarChart data={program.assessmentSystem.markingScheme?.gradingScale || []}>
+															<CartesianGrid strokeDasharray="3 3" />
+															<XAxis dataKey="grade" />
+															<YAxis />
+															<Tooltip />
+															<Bar dataKey="maxPercentage" fill="#8884d8" name="Maximum %" />
+															<Bar dataKey="minPercentage" fill="#82ca9d" name="Minimum %" />
+														</BarChart>
+													</ResponsiveContainer>
+												</div>
+											</div>
+										)}
+									</div>
+								</div>
+							) : (
+								<p>No assessment system configured for this program</p>
+							)}
 						</CardContent>
 					</Card>
 				</TabsContent>

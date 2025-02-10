@@ -138,6 +138,18 @@ export interface ClassActivity {
 	};
 }
 
+export interface ActivityWithBasicSubmissions extends ClassActivity {
+	submissions?: Array<{
+		id: string;
+		status: ActivitySubmissionStatus;
+		submittedAt: Date;
+		student: {
+			id: string;
+			name: string | null;
+		};
+	}>;
+}
+
 export type FormData = {
 	title: string;
 	description?: string;
