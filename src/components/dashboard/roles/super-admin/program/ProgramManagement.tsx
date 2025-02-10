@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Program, Status } from "@prisma/client";
+import { Status } from "@prisma/client";
 import { AssessmentSystemType } from "@/types/assessment";
-import { api } from "@/utils/api";
+import { api, type RouterOutputs } from "@/utils/api";
 import { ProgramList } from "./ProgramList";
 import { ProgramForm } from "./ProgramForm";
 import { ProgramView } from "./ProgramView";
@@ -17,43 +17,16 @@ interface ProgramWithDetails {
 	name: string | null;
 	description?: string | null;
 	status: Status;
-	calendar?: {
-		id: string;
-		name: string;
-	} | null;
-	coordinator?: {
-		id: string;
-		user: {
-			name: string | null;
-		};
-	} | null;
-	classGroups: any[];
+	calendar?: { name: string; } | null;
+	coordinator?: { user: { name: string | null; }; } | null;
+	classGroups?: any[];
 	assessmentSystem?: {
 		type: AssessmentSystemType;
-		markingSchemes?: Array<{
-			maxMarks: number;
-			passingMarks: number;
-			gradingScale: Array<{
-				grade: string;
-				minPercentage: number;
-				maxPercentage: number;
-			}>;
-		}>;
-		rubrics?: Array<{
-			name: string;
-			description?: string;
-			criteria: Array<{
-				name: string;
-				description?: string;
-				levels: Array<{
-					name: string;
-					points: number;
-					description?: string;
-				}>;
-			}>;
-		}>;
+		markingSchemes?: any[];
+		rubrics?: any[];
 	} | null;
 }
+
 
 interface Filters {
 	search?: string;
@@ -79,25 +52,16 @@ export const ProgramManagement = () => {
 });
 
 const utils = api.useContext();
-
 const { data: calendars } = api.academicCalendar.getAllCalendars.useQuery();
 
 const { data: programData, isLoading } = api.program.getAll.useQuery({
-    page: 1,
-    pageSize: 10,
-    ...filters
+	page: 1,
+	pageSize: 10,
+	...filters
 });
 
-// Use programData.programs instead of programs directly
-const programs = programData?.programs || [];
-    const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
+const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
 
-const associateCalendar = api.program.associateCalendar.useMutation({
-	onSuccess: () => {
-		utils.program.getAll.invalidate();
-		utils.program.searchPrograms.invalidate();
-	},
-});
 
     if (isLoading) {
         return <div>Loading...</div>;
@@ -215,28 +179,20 @@ const associateCalendar = api.program.associateCalendar.useMutation({
 <div className="space-y-4">
 	{mode === 'view' && (
 		<ProgramList 
-			programs={programs?.map(p => ({
+			programs={programData?.programs?.map((p) => ({
 				id: p.id,
 				name: p.name,
 				description: p.description,
 				status: p.status,
-				calendar: p.calendar ? {
-					id: p.calendar.id,
-					name: p.calendar.name
-				} : null,
-				coordinator: p.coordinator ? {
-					id: p.coordinator.id,
-					user: {
-						name: p.coordinator.user.name
-					}
-				} : null,
-				classGroups: p.classGroups,
+				calendar: p.calendar ? { name: p.calendar.name } : null,
+				coordinator: p.coordinator ? { user: { name: p.coordinator?.user?.name || "" } } : null,
+				classGroups: p.classGroups || [],
 				assessmentSystem: p.assessmentSystem ? {
-					type: p.assessmentSystem.type,
-					markingSchemes: p.assessmentSystem.markingSchemes,
-					rubrics: p.assessmentSystem.rubrics
+					...p.assessmentSystem,
+					type: p.assessmentSystem.type as unknown as AssessmentSystemType
 				} : null
-			})) || []} 
+			})) || []}
+
 			onSelect={(id) => {
 				setSelectedProgramId(id);
 				setMode('view');
@@ -245,7 +201,7 @@ const associateCalendar = api.program.associateCalendar.useMutation({
 				setSelectedProgramId(id);
 				setMode('edit');
 			}}
-			calendars={calendars || []}
+
 		/>
 	)}
 
@@ -264,15 +220,12 @@ const associateCalendar = api.program.associateCalendar.useMutation({
 		<ProgramForm 
 			coordinators={coordinators || []}
 			selectedProgram={mode === 'edit' && selectedProgramId ? 
-				programs?.find(p => p.id === selectedProgramId) : 
+				programData?.programs?.find(p => p.id === selectedProgramId) : 
 				undefined}
 			onSuccess={() => {
 				setSelectedProgramId(null);
 				setMode('view');
-			}}
-			onCancel={() => {
-				setSelectedProgramId(null);
-				setMode('view');
+				void utils.program.getAll.invalidate();
 			}}
 		/>
 	)}

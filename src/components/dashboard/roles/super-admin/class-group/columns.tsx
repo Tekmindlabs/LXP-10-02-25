@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Edit, Eye } from "lucide-react"
 
 // Define the type for class group data based on the existing components
-interface ClassGroup {
+export type ClassGroup = {
   id: string
   name: string
   program: {

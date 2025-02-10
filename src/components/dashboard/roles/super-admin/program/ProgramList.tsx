@@ -7,8 +7,8 @@ import { ProgramView } from "./ProgramView";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+
+
 import { AssessmentSystemType } from "@/types/assessment";
 
 interface ProgramListProps {
@@ -28,7 +28,7 @@ interface ProgramListProps {
 	}>;
 	onSelect: (id: string) => void;
 	onEdit: (id: string) => void;
-	calendars: Array<{ id: string; name: string }>;
+
 }
 
 
@@ -36,8 +36,8 @@ export const ProgramList = ({
 	programs,
 	onSelect,
 	onEdit,
-	calendars
 }: ProgramListProps) => {
+
 	const [viewingProgramId, setViewingProgramId] = useState<string | null>(null);
 	const [programToDelete, setProgramToDelete] = useState<string | null>(null);
 	const { toast } = useToast();
@@ -64,7 +64,13 @@ export const ProgramList = ({
 	});
 
 	if (viewingProgramId) {
-		return <ProgramView programId={viewingProgramId} onBack={() => setViewingProgramId(null)} />;
+		return <ProgramView 
+			programId={viewingProgramId} 
+			onBack={() => setViewingProgramId(null)} 
+			onEdit={() => {
+				window.location.href = `/dashboard/super-admin/program/${viewingProgramId}/edit`;
+			}} 
+		/>;
 	}
 
 	const handleDelete = (programId: string) => {
@@ -123,14 +129,14 @@ export const ProgramList = ({
 									<h4 className="font-semibold">Assessment System</h4>
 									<p>Type: {program.assessmentSystem.type.replace('_', ' ')}</p>
 									
-									{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && program.assessmentSystem.markingScheme && (
+									{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && program.assessmentSystem.markingSchemes && program.assessmentSystem.markingSchemes[0] && (
 										<div className="pl-4">
-											<p>Max Marks: {program.assessmentSystem.markingScheme.maxMarks}</p>
-											<p>Passing Marks: {program.assessmentSystem.markingScheme.passingMarks}</p>
+											<p>Max Marks: {program.assessmentSystem.markingSchemes[0].maxMarks}</p>
+											<p>Passing Marks: {program.assessmentSystem.markingSchemes[0].passingMarks}</p>
 											<div className="mt-2">
 												<p className="font-medium">Grading Scale:</p>
 												<div className="grid grid-cols-3 gap-2 text-sm">
-													{program.assessmentSystem.markingScheme.gradingScale.map((grade, index) => (
+													{program.assessmentSystem.markingSchemes[0].gradingScale.map((grade: { grade: string; minPercentage: number; maxPercentage: number }, index: number) => (
 														<div key={index} className="bg-secondary p-1 rounded">
 															{grade.grade}: {grade.minPercentage}%-{grade.maxPercentage}%
 														</div>
@@ -140,10 +146,10 @@ export const ProgramList = ({
 										</div>
 									)}
 									
-									{program.assessmentSystem.type === AssessmentSystemType.RUBRIC && program.assessmentSystem.rubric && (
+									{program.assessmentSystem.type === AssessmentSystemType.RUBRIC && program.assessmentSystem.rubrics && program.assessmentSystem.rubrics[0] && (
 										<div className="pl-4">
-											<p>Rubric Name: {program.assessmentSystem.rubric.name}</p>
-											<p>Criteria Count: {program.assessmentSystem.rubric.criteria.length}</p>
+											<p>Rubric Name: {program.assessmentSystem.rubrics[0].name}</p>
+											<p>Criteria Count: {program.assessmentSystem.rubrics[0].criteria.length}</p>
 										</div>
 									)}
 								</div>

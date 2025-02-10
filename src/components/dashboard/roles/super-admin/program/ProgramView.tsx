@@ -1,21 +1,89 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api } from "@/utils/api";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DataTable } from "@/components/ui/data-table";
-import { columns } from "@/components/dashboard/roles/super-admin/class-group/columns";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { columns, type ClassGroup } from "@/components/dashboard/roles/super-admin/class-group/columns";
+import { api } from "@/utils/api";
 import { AssessmentSystemType } from "@/types/assessment";
+import { Status, CalendarType, Visibility } from "@prisma/client";
+import type { JsonValue } from "@prisma/client/runtime/library";
+import { Loader2 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface ProgramViewProps {
 	programId: string;
 	onBack: () => void;
+	onEdit: () => void;
 }
 
-export function ProgramView({ programId, onBack }: ProgramViewProps) {
+type ProgramResponse = {
+	id: string;
+	name: string | null;
+	description: string | null;
+	status: Status;
+	calendar: {
+		description: string | null;
+		status: Status;
+		type: CalendarType;
+		name: string;
+		id: string;
+		createdAt: Date;
+		updatedAt: Date;
+		startDate: Date;
+		endDate: Date;
+		isDefault: boolean;
+		visibility: Visibility;
+		metadata: JsonValue;
+		academicYearId: string | null;
+	};
+	classGroups: Array<{
+		id: string;
+		name: string;
+		program: {
+			id: string;
+			name: string;
+		};
+		subjects: any[];
+		status: Status;
+		classes: Array<{
+			students: Array<{
+				id: string;
+			}>;
+		}>;
+	}>;
+	coordinator: {
+		user: {
+			name: string | null;
+		};
+	} | null;
+	assessmentSystem: {
+		type: AssessmentSystemType;
+		markingSchemes: Array<{
+			maxMarks: number;
+			passingMarks: number;
+			gradingScale: Array<{
+				grade: string;
+				minPercentage: number;
+				maxPercentage: number;
+			}>;
+		}>;
+		rubrics: Array<{
+			name: string;
+			criteria: Array<{
+				name: string;
+				description?: string;
+				levels: Array<{
+					name: string;
+					points: number;
+				}>;
+			}>;
+		}>;
+	} | null;
+};
+
+export function ProgramView({ programId, onBack, onEdit = () => {} }: ProgramViewProps) {
 	const { 
 		data: program, 
 		isLoading: programLoading, 
@@ -26,7 +94,7 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 			retry: 1,
 			refetchOnWindowFocus: false
 		}
-	);
+	) as unknown as { data: ProgramResponse; isLoading: boolean; error: any };
 	
 	const { 
 		data: classGroups, 
@@ -39,7 +107,7 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 			refetchOnWindowFocus: false,
 			enabled: !!program
 		}
-	);
+	) as unknown as { data: ProgramResponse['classGroups']; isLoading: boolean; error: any };
 
 	if (programLoading || classGroupsLoading) {
 		return (
@@ -77,21 +145,32 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 		);
 	}
 
-	const studentsByGroup = classGroups?.map(group => ({
+	const studentsByGroup = classGroups?.map((group) => ({
 		name: group.name,
-		students: group.classes.reduce((acc, cls) => acc + cls.students.length, 0)
-	})) || [];
+		students: group.classes.reduce((acc, cls) => 
+			acc + (cls.students?.length ?? 0), 0
+		)
+	})) ?? [];
+
 
 	return (
 		<div className="space-y-6">
 			<div className="flex justify-between items-center">
 				<h2 className="text-3xl font-bold">{program.name}</h2>
-				<button
-					onClick={onBack}
-					className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-				>
-					Back to Programs
-				</button>
+				<div className="flex gap-2">
+					<button
+						onClick={onEdit}
+						className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+					>
+						Edit Program
+					</button>
+					<button
+						onClick={onBack}
+						className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+					>
+						Back to Programs
+					</button>
+				</div>
 			</div>
 
 			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -152,21 +231,21 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 						<CardTitle>Assessment System</CardTitle>
 					</CardHeader>
 					<CardContent>
-						{program.assessmentSystem ? (
+						{program?.assessmentSystem ? (
 							<dl className="space-y-4">
 								<div>
 									<dt className="text-sm font-medium text-gray-500">Type</dt>
-									<dd>{program.assessmentSystem.type.replace('_', ' ')}</dd>
+									<dd>{program?.assessmentSystem?.type?.replace('_', ' ')}</dd>
 								</div>
 
-								{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && program.assessmentSystem.markingScheme && (
+								{program?.assessmentSystem?.type === AssessmentSystemType.MARKING_SCHEME && program?.assessmentSystem?.markingSchemes?.[0] && (
 									<>
 										<div>
 											<dt className="text-sm font-medium text-gray-500">Marking Scheme</dt>
 											<dd className="mt-1">
 												<div className="space-y-1">
-													<p>Maximum Marks: {program.assessmentSystem.markingScheme.maxMarks}</p>
-													<p>Passing Marks: {program.assessmentSystem.markingScheme.passingMarks}</p>
+													<p>Maximum Marks: {program?.assessmentSystem?.markingSchemes?.[0]?.maxMarks}</p>
+													<p>Passing Marks: {program?.assessmentSystem?.markingSchemes?.[0]?.passingMarks}</p>
 												</div>
 											</dd>
 										</div>
@@ -174,8 +253,12 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 											<dt className="text-sm font-medium text-gray-500">Grading Scale</dt>
 											<dd className="mt-2">
 												<div className="grid grid-cols-2 gap-2">
-													{program.assessmentSystem.markingScheme.gradingScale.map((grade, index) => (
-														<div key={index} className="bg-secondary p-2 rounded text-sm">
+													{program?.assessmentSystem?.markingSchemes?.[0]?.gradingScale?.map((grade: {
+														grade: string;
+														minPercentage: number;
+														maxPercentage: number;
+													}) => (
+														<div key={grade.grade} className="bg-secondary p-2 rounded text-sm">
 															<span className="font-medium">{grade.grade}:</span> {grade.minPercentage}% - {grade.maxPercentage}%
 														</div>
 													))}
@@ -185,25 +268,25 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 									</>
 								)}
 
-								{program.assessmentSystem.type === AssessmentSystemType.RUBRIC && program.assessmentSystem.rubric && (
+{program?.assessmentSystem?.type === AssessmentSystemType.RUBRIC && program?.assessmentSystem?.rubrics?.[0] && (
 									<>
 										<div>
 											<dt className="text-sm font-medium text-gray-500">Rubric Name</dt>
-											<dd>{program.assessmentSystem.rubric.name}</dd>
+											<dd>{program?.assessmentSystem?.rubrics?.[0]?.name}</dd>
 										</div>
 										<div>
 											<dt className="text-sm font-medium text-gray-500">Criteria</dt>
 											<dd className="mt-2">
 												<div className="space-y-3">
-													{program.assessmentSystem.rubric.criteria.map((criterion, index) => (
-														<div key={index} className="bg-secondary p-3 rounded">
+													{program?.assessmentSystem?.rubrics?.[0]?.criteria?.map((criterion: { name: string; description?: string; levels: Array<{ name: string; points: number }> }) => (
+														<div key={criterion.name} className="bg-secondary p-3 rounded">
 															<h4 className="font-medium">{criterion.name}</h4>
 															{criterion.description && (
 																<p className="text-sm text-gray-600 mt-1">{criterion.description}</p>
 															)}
 															<div className="grid grid-cols-2 gap-2 mt-2">
-																{criterion.levels.map((level, levelIndex) => (
-																	<div key={levelIndex} className="bg-background p-2 rounded text-sm">
+																{criterion.levels.map((level: { name: string; points: number }) => (
+																	<div key={level.name} className="bg-background p-2 rounded text-sm">
 																		<div className="font-medium">{level.name}</div>
 																		<div>Points: {level.points}</div>
 																	</div>
@@ -253,7 +336,21 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 							<CardTitle>Class Groups</CardTitle>
 						</CardHeader>
 						<CardContent>
-							{classGroups && <DataTable columns={columns} data={classGroups} />}
+							{classGroups && <DataTable 
+								columns={columns} 
+								data={classGroups.map(group => ({
+									id: group.id,
+									name: group.name,
+									program: {
+										id: group.program.id,
+										name: group.program.name
+									},
+									subjects: group.subjects,
+									status: group.status === "ARCHIVED" ? "INACTIVE" : group.status,
+									classes: group.classes,
+									description: null
+								} satisfies ClassGroup))} 
+							/>}
 						</CardContent>
 					</Card>
 				</TabsContent>
@@ -273,16 +370,16 @@ export function ProgramView({ programId, onBack }: ProgramViewProps) {
 							<CardTitle>Assessment Configuration</CardTitle>
 						</CardHeader>
 						<CardContent>
-							{program.assessmentSystem ? (
+							{program?.assessmentSystem ? (
 								<div className="space-y-6">
 									<div>
-										<h3 className="text-lg font-medium">Assessment Type: {program.assessmentSystem.type.replace('_', ' ')}</h3>
-										{program.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME && (
+										<h3 className="text-lg font-medium">Assessment Type: {program?.assessmentSystem?.type?.replace('_', ' ')}</h3>
+										{program?.assessmentSystem?.type === AssessmentSystemType.MARKING_SCHEME && (
 											<div className="mt-4">
 												<h4 className="font-medium">Performance Metrics</h4>
 												<div className="mt-2">
 													<ResponsiveContainer width="100%" height={300}>
-														<BarChart data={program.assessmentSystem.markingScheme?.gradingScale || []}>
+														<BarChart data={program?.assessmentSystem?.markingSchemes?.[0]?.gradingScale || []}>
 															<CartesianGrid strokeDasharray="3 3" />
 															<XAxis dataKey="grade" />
 															<YAxis />
