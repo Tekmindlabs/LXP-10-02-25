@@ -2,6 +2,10 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { Status } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
+import { TermManagementService } from "../../services/TermManagementService";
+
+const termTypeEnum = z.enum(['SEMESTER', 'TERM', 'QUARTER'] as const);
+
 
 export const termRouter = createTRPCRouter({
 	create: protectedProcedure
@@ -106,6 +110,34 @@ export const termRouter = createTRPCRouter({
 				orderBy: {
 					startDate: 'asc'
 				}
+			});
+		}),
+
+	updateProgramTermSystem: protectedProcedure
+		.input(z.object({
+			programId: z.string(),
+			terms: z.array(z.object({
+				id: z.string(),
+				name: z.string(),
+				startDate: z.date(),
+				endDate: z.date(),
+				type: termTypeEnum,
+				calendarTermId: z.string(),
+				assessmentPeriods: z.array(z.object({
+					id: z.string(),
+					name: z.string(),
+					startDate: z.date(),
+					endDate: z.date(),
+					weight: z.number()
+				}))
+			})),
+			propagateToClassGroups: z.boolean().default(false)
+		}))
+		.mutation(async ({ ctx, input }) => {
+			const termService = new TermManagementService(ctx.prisma);
+			return termService.updateProgramTermSystem(input.programId, {
+				terms: input.terms,
+				propagateToClassGroups: input.propagateToClassGroups
 			});
 		}),
 });

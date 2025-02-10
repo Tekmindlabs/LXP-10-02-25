@@ -1,7 +1,19 @@
-import { PrismaClient } from "@prisma/client";
-import type { AcademicTerm, ClassGroupTermSettings } from "@/types/terms";
+import { PrismaClient, Status, Prisma } from "@prisma/client";
+import type { AcademicTerm, TermAssessmentPeriod, TermType } from "@/types/terms";
+
+interface CustomTerm {
+	termId: string;
+	startDate: Date;
+	endDate: Date;
+	assessmentPeriods: TermAssessmentPeriod[];
+}
+
+interface CustomSettings {
+	terms: CustomTerm[];
+}
 
 export class TermManagementService {
+
 	private db: PrismaClient;
 
 	constructor(db: PrismaClient) {
@@ -13,15 +25,21 @@ export class TermManagementService {
 			data: {
 				program: { connect: { id: programId } },
 				academicYear: { connect: { id: academicYearId } },
+				name: "Default Term Structure",
+				weight: 1.0,
+				order: 1,
+				status: Status.ACTIVE,
+				startDate: new Date(),
+				endDate: new Date(),
 				academicTerms: {
 					create: terms.map(term => ({
 						name: term.name,
 						startDate: term.startDate,
 						endDate: term.endDate,
 						type: term.type,
-						calendarTerm: term.calendarTermId ? {
-							connect: { id: term.calendarTermId }
-						} : undefined,
+						term: {
+							connect: { id: term.calendarTermId || '' }
+						},
 						assessmentPeriods: {
 							create: term.assessmentPeriods.map(ap => ({
 								name: ap.name,
@@ -37,7 +55,7 @@ export class TermManagementService {
 				academicTerms: {
 					include: {
 						assessmentPeriods: true,
-						calendarTerm: true
+						term: true
 					}
 				}
 			}
@@ -70,7 +88,7 @@ export class TermManagementService {
 						academicTerms: {
 							include: {
 								assessmentPeriods: true,
-								calendarTerm: true
+								term: true
 							}
 						}
 					}
@@ -83,54 +101,137 @@ export class TermManagementService {
 		}
 
 		const customSettings = termSettings.customSettings ? 
-			JSON.parse(termSettings.customSettings as string) as ClassGroupTermSettings['customSettings'] : 
+			JSON.parse(termSettings.customSettings as string) as CustomSettings : 
 			undefined;
 
 		return this.mergeTermSettings(
-			termSettings.programTerm.academicTerms as unknown as AcademicTerm[],
+			termSettings.programTerm?.academicTerms as unknown as AcademicTerm[] || [],
 			customSettings
 		);
 	}
 
-	async customizeClassGroupTerm(
-		classGroupId: string,
-		termId: string,
-		customSettings: NonNullable<ClassGroupTermSettings['customSettings']>
-	) {
-		return this.db.classGroupTermSettings.update({
-			where: {
-				id: termId,
-				classGroupId
-			},
-			data: {
-				customSettings: JSON.stringify({
-					startDate: customSettings.startDate?.toISOString(),
-					endDate: customSettings.endDate?.toISOString(),
-					assessmentPeriods: customSettings.assessmentPeriods?.map(ap => ({
-						...ap,
-						startDate: ap.startDate.toISOString(),
-						endDate: ap.endDate.toISOString()
-					}))
-				})
+	private mergeTermSettings(terms: AcademicTerm[], customSettings?: CustomSettings): AcademicTerm[] {
+		if (!customSettings?.terms) {
+			return terms;
+		}
+
+		return terms.map(term => {
+			const customTerm = customSettings.terms.find((ct: CustomTerm) => ct.termId === term.id);
+			if (customTerm) {
+				return {
+					...term,
+					startDate: new Date(customTerm.startDate),
+					endDate: new Date(customTerm.endDate),
+					assessmentPeriods: customTerm.assessmentPeriods
+				};
 			}
+			return term;
 		});
 	}
 
-	private mergeTermSettings(
-		baseTerms: AcademicTerm[],
-		customSettings?: ClassGroupTermSettings['customSettings']
-	): AcademicTerm[] {
-		if (!customSettings) return baseTerms;
 
-		return baseTerms.map(term => ({
-			...term,
-			startDate: customSettings.startDate ? new Date(customSettings.startDate) : term.startDate,
-			endDate: customSettings.endDate ? new Date(customSettings.endDate) : term.endDate,
-			assessmentPeriods: customSettings.assessmentPeriods?.map(ap => ({
-				...ap,
-				startDate: new Date(ap.startDate),
-				endDate: new Date(ap.endDate)
-			})) || term.assessmentPeriods
-		}));
+	async updateProgramTermSystem(programId: string, updates: {
+		terms: AcademicTerm[];
+		propagateToClassGroups?: boolean;
+	}) {
+		const programTerm = await this.db.programTermStructure.findFirst({
+			where: { programId },
+			include: { academicTerms: true }
+		});
+
+		if (!programTerm) {
+			throw new Error("Program term structure not found");
+		}
+
+		const updatedTerms = await this.db.programTermStructure.update({
+			where: { id: programTerm.id },
+			data: {
+				academicTerms: {
+					deleteMany: {},
+					create: updates.terms.map(term => ({
+						name: term.name,
+						startDate: term.startDate,
+						endDate: term.endDate,
+						type: term.type,
+						term: {
+							connect: { id: term.calendarTermId || '' }
+						},
+						assessmentPeriods: {
+							create: term.assessmentPeriods.map(ap => ({
+								name: ap.name,
+								startDate: ap.startDate,
+								endDate: ap.endDate,
+								weight: ap.weight
+							}))
+						}
+					}))
+				}
+			},
+			include: {
+				academicTerms: {
+					include: {
+						assessmentPeriods: true,
+						term: true,
+						termStructure: true
+					}
+				}
+			}
+		});
+
+		if (updates.propagateToClassGroups && updatedTerms.academicTerms) {
+			await this.propagateTermUpdatesToClassGroups(
+				programId, 
+				updatedTerms.academicTerms.map(academicTerm => ({
+					id: academicTerm.id,
+					name: academicTerm.name,
+					startDate: academicTerm.term.startDate,
+					endDate: academicTerm.term.endDate,
+					type: academicTerm.term.type as TermType,
+					calendarTermId: academicTerm.termId,
+					assessmentPeriods: academicTerm.assessmentPeriods
+				})) as AcademicTerm[]
+			);
+		}
+
+		return updatedTerms;
+	}
+
+	private async propagateTermUpdatesToClassGroups(programId: string, terms: AcademicTerm[]) {
+		const classGroups = await this.db.classGroup.findMany({
+			where: { 
+				programId,
+				status: Status.ACTIVE,
+				termSettings: {
+					every: {
+						customSettings: {
+							equals: Prisma.JsonNull
+						}
+					}
+				}
+			}
+		});
+
+		return Promise.all(
+			classGroups.map(group => 
+				this.db.classGroupTermSettings.updateMany({
+					where: { 
+						classGroupId: group.id,
+						customSettings: {
+							equals: Prisma.JsonNull
+						}
+					},
+					data: {
+						customSettings: JSON.stringify({
+							terms: terms.map(term => ({
+								termId: term.id,
+								startDate: term.startDate,
+								endDate: term.endDate,
+								assessmentPeriods: term.assessmentPeriods
+							}))
+						})
+					}
+				})
+			)
+		);
 	}
 }

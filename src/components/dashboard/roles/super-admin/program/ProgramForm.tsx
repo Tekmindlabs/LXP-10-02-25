@@ -141,47 +141,51 @@ const defaultRubric = {
 };
 
 export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: ProgramFormProps) => {
-	const [formData, setFormData] = useState<ProgramFormData>(() => ({
-		name: selectedProgram?.name || "",
-		description: selectedProgram?.description || "",
-		calendarId: selectedProgram?.calendarId || "NO_SELECTION",
-		coordinatorId: selectedProgram?.coordinatorId || "NO_SELECTION",
-		status: selectedProgram?.status || Status.ACTIVE,
-		termSystem: selectedProgram?.termSystem || {
-			type: "SEMESTER",
+	const [formData, setFormData] = useState<ProgramFormData>(() => {
+		const defaultTermSystem = {
+			type: "SEMESTER" as const,
 			terms: [
 				{
 					name: "Semester 1",
 					startDate: new Date(),
 					endDate: new Date(),
-					type: "SEMESTER",
+					type: "SEMESTER" as const,
 					assessmentPeriods: []
 				},
 				{
 					name: "Semester 2",
 					startDate: new Date(),
 					endDate: new Date(),
-					type: "SEMESTER",
+					type: "SEMESTER" as const,
 					assessmentPeriods: []
 				}
 			]
-		},
-		assessmentSystem: selectedProgram?.assessmentSystem || {
-			type: AssessmentSystemType.MARKING_SCHEME,
-			markingScheme: {
-				maxMarks: 100,
-				passingMarks: 40,
-				gradingScale: [
-					{ grade: 'A', minPercentage: 80, maxPercentage: 100 },
-					{ grade: 'B', minPercentage: 70, maxPercentage: 79 },
-					{ grade: 'C', minPercentage: 60, maxPercentage: 69 },
-					{ grade: 'D', minPercentage: 50, maxPercentage: 59 },
-					{ grade: 'E', minPercentage: 40, maxPercentage: 49 },
-					{ grade: 'F', minPercentage: 0, maxPercentage: 39 }
-				]
+		};
+
+		return {
+			name: selectedProgram?.name || "",
+			description: selectedProgram?.description || "",
+			calendarId: selectedProgram?.calendarId || "NO_SELECTION",
+			coordinatorId: selectedProgram?.coordinatorId || "NO_SELECTION",
+			status: selectedProgram?.status || Status.ACTIVE,
+			termSystem: selectedProgram?.termSystem || defaultTermSystem,
+			assessmentSystem: selectedProgram?.assessmentSystem || {
+				type: AssessmentSystemType.MARKING_SCHEME,
+				markingScheme: {
+					maxMarks: 100,
+					passingMarks: 40,
+					gradingScale: [
+						{ grade: 'A', minPercentage: 80, maxPercentage: 100 },
+						{ grade: 'B', minPercentage: 70, maxPercentage: 79 },
+						{ grade: 'C', minPercentage: 60, maxPercentage: 69 },
+						{ grade: 'D', minPercentage: 50, maxPercentage: 59 },
+						{ grade: 'E', minPercentage: 40, maxPercentage: 49 },
+						{ grade: 'F', minPercentage: 0, maxPercentage: 39 }
+					]
+				}
 			}
-		}
-	}));
+		};
+	});
 
 	const { 
 		data: calendars, 

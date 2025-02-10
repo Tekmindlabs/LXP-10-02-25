@@ -251,13 +251,14 @@ model ClassGroup {
   programId    String
   calendar     Calendar                 @relation(fields: [calendarId], references: [id], onDelete: Restrict)
   calendarId   String
-  classes      Class[]
-  subjects     Subject[]
-  timetables   Timetable[]
-  activities   ClassActivity[]
-  termSettings ClassGroupTermSettings[]
-  subjectChangeLogs SubjectChangeLog[]
-  status       Status                   @default(ACTIVE)
+  classes            Class[]
+  subjects           Subject[]
+  timetables         Timetable[]
+  activities         ClassActivity[]
+  termSettings       ClassGroupTermSettings[]
+  assessmentSettings ClassGroupAssessmentSettings[]
+  subjectChangeLogs  SubjectChangeLog[]
+  status            Status                   @default(ACTIVE)
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
 
@@ -503,12 +504,13 @@ model AssessmentSystem {
   name        String
   description String?
   type        AssessmentSystemType
-  program     Program  @relation(fields: [programId], references: [id])
-  programId   String   @unique
-  cgpaConfig  Json?
-  markingSchemes MarkingScheme[]
-  rubrics        Rubric[]
-  createdAt      DateTime @default(now())
+  program           Program  @relation(fields: [programId], references: [id])
+  programId         String   @unique
+  cgpaConfig        Json?
+  markingSchemes    MarkingScheme[]
+  rubrics           Rubric[]
+  classGroupSettings ClassGroupAssessmentSettings[]
+  createdAt         DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@map("assessment_systems")
@@ -1258,14 +1260,28 @@ model TermAssessmentPeriod {
 }
 
 model ClassGroupTermSettings {
-  id             String               @id @default(uuid())
-  classGroupId   String
-  programTermId  String
-  customSettings Json?
-  classGroup     ClassGroup           @relation(fields: [classGroupId], references: [id])
-  programTerm    ProgramTermStructure @relation(fields: [programTermId], references: [id])
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id              String               @id @default(cuid())
+  classGroupId    String
+  programTermId   String
+  customSettings  Json?
+  isCustomized    Boolean              @default(false)
+  lastUpdated     DateTime             @updatedAt
+  classGroup      ClassGroup           @relation(fields: [classGroupId], references: [id])
+  programTerm     ProgramTermStructure @relation(fields: [programTermId], references: [id])
 
   @@map("class_group_term_settings")
+}
+
+model ClassGroupAssessmentSettings {
+  id                 String           @id @default(cuid())
+  classGroupId       String
+  assessmentSystemId String
+  customSettings     Json?
+  isCustomized       Boolean          @default(false)
+  lastUpdated        DateTime         @updatedAt
+  classGroup         ClassGroup       @relation(fields: [classGroupId], references: [id])
+  assessmentSystem   AssessmentSystem @relation(fields: [assessmentSystemId], references: [id])
+
+  @@unique([classGroupId, assessmentSystemId])
+  @@map("class_group_assessment_settings")
 }
