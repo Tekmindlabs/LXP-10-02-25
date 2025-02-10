@@ -199,36 +199,55 @@ export const ClassGroupDetailsView = ({ classGroupId }: ClassGroupDetailsViewPro
 					<TabsTrigger value="attendance">Attendance</TabsTrigger>
 					<TabsTrigger value="activities">Activities</TabsTrigger>
 					<TabsTrigger value="classes">Classes</TabsTrigger>
+					<TabsTrigger value="subjects">Subjects</TabsTrigger>
 				</TabsList>
 
 				<TabsContent value="overview">
-					<Card>
-						<CardHeader>
-							<CardTitle>Performance Overview</CardTitle>
-						</CardHeader>
-						<CardContent>
-							{validatePerformanceData(performanceTrends) ? (
-								<ResponsiveContainer width="100%" height={300}>
-									<LineChart data={performanceTrends?.data}>
-										<CartesianGrid strokeDasharray="3 3" />
-										<XAxis dataKey="date" />
-										<YAxis />
-										<Tooltip />
-										<Line 
-											type="monotone" 
-											dataKey="averageScore" 
-											stroke="#8884d8"
-											name="Average Score"
-										/>
-									</LineChart>
-								</ResponsiveContainer>
-							) : (
-								<div className="text-center p-4 text-muted-foreground">
-									No performance data available for the selected period.
+					<div className="grid gap-4 md:grid-cols-2">
+						<Card>
+							<CardHeader>
+								<CardTitle>Performance Overview</CardTitle>
+							</CardHeader>
+							<CardContent>
+								{validatePerformanceData(performanceTrends) ? (
+									<ResponsiveContainer width="100%" height={300}>
+										<LineChart data={performanceTrends?.data}>
+											<CartesianGrid strokeDasharray="3 3" />
+											<XAxis dataKey="date" />
+											<YAxis />
+											<Tooltip />
+											<Line 
+												type="monotone" 
+												dataKey="averageScore" 
+												stroke="#8884d8"
+												name="Average Score"
+											/>
+										</LineChart>
+									</ResponsiveContainer>
+								) : (
+									<div className="text-center p-4 text-muted-foreground">
+										No performance data available for the selected period.
+									</div>
+								)}
+							</CardContent>
+						</Card>
+
+						<Card>
+							<CardHeader>
+								<CardTitle>Subject Distribution</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<div className="space-y-4">
+									{classGroup.subjects.map((subject) => (
+										<div key={subject.id} className="flex items-center justify-between">
+											<span className="font-medium">{subject.name}</span>
+											<Badge variant="outline">{subject.code}</Badge>
+										</div>
+									))}
 								</div>
-							)}
-						</CardContent>
-					</Card>
+							</CardContent>
+						</Card>
+					</div>
 				</TabsContent>
 
 				<TabsContent value="performance">
@@ -278,6 +297,39 @@ export const ClassGroupDetailsView = ({ classGroupId }: ClassGroupDetailsViewPro
 									No attendance data available for the selected period.
 								</div>
 							)}
+						</CardContent>
+					</Card>
+				</TabsContent>
+
+				<TabsContent value="subjects">
+					<Card>
+						<CardHeader>
+							<CardTitle>Subjects Overview</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<div className="space-y-4">
+								{classGroup.subjects.length > 0 ? (
+									<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+										{classGroup.subjects.map((subject) => (
+											<Card key={subject.id} className="p-4">
+												<div className="flex flex-col space-y-2">
+													<div className="flex items-center justify-between">
+														<h3 className="font-semibold">{subject.name}</h3>
+														<Badge>{subject.code}</Badge>
+													</div>
+													{subject.description && (
+														<p className="text-sm text-muted-foreground">{subject.description}</p>
+													)}
+												</div>
+											</Card>
+										))}
+									</div>
+								) : (
+									<div className="text-center p-4 text-muted-foreground">
+										No subjects assigned to this class group.
+									</div>
+								)}
+							</div>
 						</CardContent>
 					</Card>
 				</TabsContent>

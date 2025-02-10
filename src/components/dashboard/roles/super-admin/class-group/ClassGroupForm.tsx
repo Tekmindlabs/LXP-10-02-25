@@ -44,6 +44,7 @@ interface FormData {
 
 interface Props {
 	programs: Program[];
+	subjects: Subject[];
 	selectedClassGroup?: {
 		id: string;
 		name: string;

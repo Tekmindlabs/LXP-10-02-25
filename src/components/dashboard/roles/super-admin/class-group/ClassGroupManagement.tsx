@@ -36,6 +36,14 @@ export const ClassGroupManagement = () => {
 		pageSize: 10
 	});
 
+	const {
+		data: subjects,
+		isLoading: subjectsLoading
+	} = api.subject.searchSubjects.useQuery({
+		search: "",
+		status: "ACTIVE"
+	});
+
 	const { data: analyticsData } = api.classGroup.getOverallAnalytics.useQuery();
 
 	const handleSuccess = () => {
@@ -54,11 +62,11 @@ export const ClassGroupManagement = () => {
 		);
 	}
 
-	const isLoading = groupsLoading || programsLoading;
+	const isLoading = groupsLoading || programsLoading || subjectsLoading;
 	const totalGroups = classGroups?.length || 0;
 	const activeGroups = classGroups?.filter(g => g.status === 'ACTIVE').length || 0;
 	const totalClasses = classGroups?.reduce((acc, group) => acc + group.classes.length, 0) || 0;
-	const totalSubjects = classGroups?.reduce((acc, group) => acc + group.subjects.length, 0) || 0;
+
 
 	return (
 		<div className="space-y-6">
@@ -80,6 +88,7 @@ export const ClassGroupManagement = () => {
 								id: p.id,
 								name: p.name || 'Unnamed Program'
 							})) || []}
+							subjects={subjects || []}
 							onSuccess={handleSuccess}
 						/>
 					</DialogContent>
@@ -121,11 +130,13 @@ export const ClassGroupManagement = () => {
 				</Card>
 				<Card>
 					<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-						<CardTitle className="text-sm font-medium">Average Performance</CardTitle>
+						<CardTitle className="text-sm font-medium">Total Subjects</CardTitle>
 						<BookOpen className="h-4 w-4 text-muted-foreground" />
 					</CardHeader>
 					<CardContent>
-						<div className="text-2xl font-bold">{analyticsData?.averagePerformance || 0}%</div>
+						<div className="text-2xl font-bold">
+							{classGroups?.reduce((acc, group) => acc + group.subjects.length, 0) || 0}
+						</div>
 					</CardContent>
 				</Card>
 			</div>
@@ -169,8 +180,10 @@ export const ClassGroupManagement = () => {
 												description: classGroups.find(g => g.id === selectedGroupId)!.description,
 												programId: classGroups.find(g => g.id === selectedGroupId)!.programId,
 												status: classGroups.find(g => g.id === selectedGroupId)!.status,
-												calendarId: classGroups.find(g => g.id === selectedGroupId)!.calendarId
+												calendarId: classGroups.find(g => g.id === selectedGroupId)!.calendarId,
+												subjects: classGroups.find(g => g.id === selectedGroupId)!.subjects
 											} : undefined}
+											subjects={subjects || []}
 											onSuccess={handleSuccess}
 										/>
 									</DialogContent>

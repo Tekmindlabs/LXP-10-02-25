@@ -8,6 +8,17 @@ const calendarSchema = z.object({
 	inheritSettings: z.boolean().optional(),
 });
 
+// Schema for logging subject changes
+type SubjectChangeType = 'INITIAL_SUBJECTS_ADDED' | 'SUBJECTS_UPDATED';
+
+interface SubjectChange {
+	type: SubjectChangeType;
+	subjectIds?: string[];
+	added?: string[];
+	removed?: string[];
+	timestamp: Date;
+}
+
 export const classGroupRouter = createTRPCRouter({
 	create: protectedProcedure
 		.input(z.object({
@@ -16,54 +27,107 @@ export const classGroupRouter = createTRPCRouter({
 			programId: z.string(),
 			status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).default(Status.ACTIVE),
 			calendar: calendarSchema,
+			subjectIds: z.array(z.string()).optional(),
 		}))
 		.mutation(async ({ ctx, input }) => {
-			const { calendar, ...classGroupData } = input;
+			const { calendar, subjectIds, ...classGroupData } = input;
 
 			return ctx.prisma.$transaction(async (tx) => {
 				const classGroup = await tx.classGroup.create({
 					data: {
 						...classGroupData,
 						calendarId: calendar.id,
+						...(subjectIds && {
+							subjects: {
+								connect: subjectIds.map(id => ({ id })),
+							},
+						}),
 					},
 					include: {
 						classes: true,
 						calendar: true,
+						subjects: true,
 					}
 				});
+
+				// Log subject changes if any subjects were added
+				if (subjectIds?.length) {
+					await tx.subjectChangeLog.create({
+						data: {
+							classGroupId: classGroup.id,
+							changes: JSON.stringify({
+								type: 'INITIAL_SUBJECTS_ADDED',
+								subjectIds,
+								timestamp: new Date(),
+							} as SubjectChange),
+						},
+					});
+				}
 
 				return classGroup;
 			});
 		}),
 
 	update: protectedProcedure
-
 		.input(z.object({
-		  id: z.string(),
-		  name: z.string().optional(),
-		  description: z.string().optional(),
-		  programId: z.string().optional(),
-		  status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).optional(),
-		  calendar: calendarSchema.optional(),
+			id: z.string(),
+			name: z.string().optional(),
+			description: z.string().optional(),
+			programId: z.string().optional(),
+			status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).optional(),
+			calendar: calendarSchema.optional(),
+			subjectIds: z.array(z.string()).optional(),
 		}))
 		.mutation(async ({ ctx, input }) => {
-		  const { id, calendar, ...data } = input;
+			const { id, calendar, subjectIds, ...data } = input;
 
-		  return ctx.prisma.$transaction(async (tx) => {
-			const classGroup = await tx.classGroup.update({
-			  where: { id },
-			  data: {
-				...data,
-				...(calendar && { calendarId: calendar.id }),
-			  },
-			  include: {
-				classes: true,
-				calendar: true,
-			  }
+			return ctx.prisma.$transaction(async (tx) => {
+				// Get current subjects for comparison
+				const currentClassGroup = await tx.classGroup.findUnique({
+					where: { id },
+					include: { subjects: true },
+				});
+
+				const currentSubjectIds = currentClassGroup?.subjects.map(s => s.id) || [];
+
+				const classGroup = await tx.classGroup.update({
+					where: { id },
+					data: {
+						...data,
+						...(calendar && { calendarId: calendar.id }),
+						...(subjectIds && {
+							subjects: {
+								set: subjectIds.map(id => ({ id })),
+							},
+						}),
+					},
+					include: {
+						classes: true,
+						calendar: true,
+						subjects: true,
+					}
+				});
+
+				// Log subject changes if subjects were modified
+				if (subjectIds && JSON.stringify(currentSubjectIds) !== JSON.stringify(subjectIds)) {
+					const added = subjectIds.filter(id => !currentSubjectIds.includes(id));
+					const removed = currentSubjectIds.filter(id => !subjectIds.includes(id));
+
+					await tx.subjectChangeLog.create({
+						data: {
+							classGroupId: classGroup.id,
+							changes: JSON.stringify({
+								type: 'SUBJECTS_UPDATED',
+								added,
+								removed,
+								timestamp: new Date(),
+							} as SubjectChange),
+						},
+					});
+				}
+
+				return classGroup;
 			});
-
-			return classGroup;
-		  });
 		}),
 
 
@@ -464,7 +528,7 @@ export const classGroupRouter = createTRPCRouter({
 			const averagePerformance = activities.length > 0 
 				? activities.reduce((acc, activity) => {
 						const activityAvg = activity.submissions.reduce((sum, sub) => 
-							sum + (sub.obtainedMarks / sub.totalMarks * 100), 0) / 
+							sum + ((sub.obtainedMarks ?? 0) / (sub.totalMarks ?? 1) * 100), 0) / 
 							(activity.submissions.length || 1);
 						return acc + activityAvg;
 					}, 0) / activities.length
