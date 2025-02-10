@@ -225,19 +225,20 @@ model Week {
 }
 
 model Program {
-  id              String                 @id @default(cuid())
-  name            String?                @unique
+  id              String           @id @default(cuid())
+  name            String?          @unique
   description     String?
-  status          Status                 @default(ACTIVE)
-  coordinator     CoordinatorProfile?    @relation(fields: [coordinatorId], references: [id])
+  status          Status          @default(ACTIVE)
+  termSystem      TermSystemType  @default(SEMESTER)
+  coordinator     CoordinatorProfile? @relation(fields: [coordinatorId], references: [id])
   coordinatorId   String?
-  calendar        Calendar               @relation(fields: [calendarId], references: [id])
+  calendar        Calendar        @relation(fields: [calendarId], references: [id])
   calendarId      String
   classGroups     ClassGroup[]
   termStructures  ProgramTermStructure[]
   assessmentSystem AssessmentSystem?
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@map("programs")
 }
@@ -504,11 +505,7 @@ model AssessmentSystem {
   type        AssessmentSystemType
   program     Program  @relation(fields: [programId], references: [id])
   programId   String   @unique
-  
-  // CGPA Configuration
-  cgpaConfig  Json? // Stores grade points, semester weightage, and backlog settings
-  
-  // Relations
+  cgpaConfig  Json?
   markingSchemes MarkingScheme[]
   rubrics        Rubric[]
   createdAt      DateTime @default(now())
@@ -516,6 +513,7 @@ model AssessmentSystem {
 
   @@map("assessment_systems")
 }
+
 
 // Marking System
 model MarkingScheme {
@@ -968,6 +966,12 @@ enum AssessmentSystemType {
   CGPA
 }
 
+enum TermSystemType {
+  SEMESTER
+  TERM
+  QUARTER
+}
+
 enum AssessmentType {
   QUIZ
   ASSIGNMENT
@@ -1021,6 +1025,40 @@ enum ParticipantRole {
 enum TeacherType {
   CLASS
   SUBJECT
+}
+
+// Add Term Result and CGPA Record Models
+model TermResult {
+  id                String   @id @default(cuid())
+  studentId         String
+  programTermId     String
+  gpa              Float
+  totalCredits      Float
+  earnedCredits     Float
+  status           Status   @default(ACTIVE)
+  metadata         Json?    
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([studentId, programTermId])
+  @@map("term_results")
+}
+
+model CGPARecord {
+  id              String   @id @default(cuid())
+  studentId       String
+  programId       String
+  cgpa           Float
+  totalCredits    Float
+  earnedCredits   Float
+  academicYearId  String
+  status         Status   @default(ACTIVE)
+  metadata       Json?    
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([studentId, programId, academicYearId])
+  @@map("cgpa_records")
 }
 
 // Knowledge Base Models
@@ -1167,35 +1205,43 @@ model BrandKit {
 
 // Term Management Models
 model ProgramTermStructure {
-  id                 String                   @id @default(uuid())
-  programId          String
-  program            Program                  @relation(fields: [programId], references: [id])
-  academicYearId     String
-  academicYear       AcademicYear             @relation(fields: [academicYearId], references: [id])
-  academicTerms      AcademicTerm[]
-  classGroupSettings ClassGroupTermSettings[]
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  id            String    @id @default(cuid())
+  name          String    
+  program       Program   @relation(fields: [programId], references: [id])
+  programId     String
+  academicYear  AcademicYear @relation(fields: [academicYearId], references: [id])
+  academicYearId String
+  startDate     DateTime
+  endDate       DateTime
+  weight        Float     @default(1.0)
+  order         Int      
+  status        Status    @default(ACTIVE)
+  academicTerms AcademicTerm[]
+  termSettings  ClassGroupTermSettings[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
+  @@unique([programId, academicYearId, order])
   @@map("program_term_structures")
 }
 
 model AcademicTerm {
-  id                String                 @id @default(uuid())
-  name              String
-  startDate         DateTime
-  endDate           DateTime
-  type              String
-  programTermId     String
-  programTerm       ProgramTermStructure   @relation(fields: [programTermId], references: [id])
-  calendarTerm      Term?                  @relation(fields: [calendarTermId], references: [id])
-  calendarTermId    String?
-  assessmentPeriods TermAssessmentPeriod[]
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  id                    String               @id @default(cuid())
+  name                  String
+  termStructure         ProgramTermStructure @relation(fields: [termStructureId], references: [id])
+  termStructureId       String
+  term                  Term                 @relation(fields: [termId], references: [id])
+  termId                String
+  assessmentWeightage   Float                @default(100)
+  status               Status               @default(ACTIVE)
+  assessmentPeriods    TermAssessmentPeriod[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
+  @@unique([termStructureId, termId])
   @@map("academic_terms")
 }
+
 
 model TermAssessmentPeriod {
   id        String       @id @default(uuid())
