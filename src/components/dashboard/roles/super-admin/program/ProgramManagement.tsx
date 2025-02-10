@@ -177,7 +177,7 @@ const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
                     </div>
 
 <div className="space-y-4">
-	{mode === 'view' && (
+	{mode === 'view' && !selectedProgramId && (
 		<ProgramList 
 			programs={programData?.programs?.map((p) => ({
 				id: p.id,
@@ -192,16 +192,14 @@ const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
 					type: p.assessmentSystem.type as unknown as AssessmentSystemType
 				} : null
 			})) || []}
-
-			onSelect={(id) => {
+			onSelect={(id: string) => {
 				setSelectedProgramId(id);
 				setMode('view');
 			}}
-			onEdit={(id) => {
+			onEdit={(id: string) => {
 				setSelectedProgramId(id);
 				setMode('edit');
 			}}
-
 		/>
 	)}
 
@@ -212,7 +210,9 @@ const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
 				setSelectedProgramId(null);
 				setMode('view');
 			}}
-			onEdit={() => setMode('edit')}
+			onEdit={() => {
+				setMode('edit');
+			}}
 		/>
 	)}
 
@@ -230,6 +230,7 @@ const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
 		/>
 	)}
 </div>
+
 
                 </CardContent>
             </Card>

@@ -3,12 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/utils/api";
-import { ProgramView } from "./ProgramView";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-
-
 import { AssessmentSystemType } from "@/types/assessment";
 
 interface ProgramListProps {
@@ -18,7 +15,7 @@ interface ProgramListProps {
 		description?: string | null;
 		status: string;
 		calendar?: { name: string; } | null;
-		coordinator?: { user: { name: string; }; } | null;
+		coordinator?: { user: { name: string | null; }; } | null;
 		classGroups?: any[];
 		assessmentSystem?: {
 			type: AssessmentSystemType;
@@ -28,17 +25,13 @@ interface ProgramListProps {
 	}>;
 	onSelect: (id: string) => void;
 	onEdit: (id: string) => void;
-
 }
-
 
 export const ProgramList = ({
 	programs,
 	onSelect,
 	onEdit,
 }: ProgramListProps) => {
-
-	const [viewingProgramId, setViewingProgramId] = useState<string | null>(null);
 	const [programToDelete, setProgramToDelete] = useState<string | null>(null);
 	const { toast } = useToast();
 	const utils = api.useContext();
@@ -62,16 +55,6 @@ export const ProgramList = ({
 			setProgramToDelete(null);
 		},
 	});
-
-	if (viewingProgramId) {
-		return <ProgramView 
-			programId={viewingProgramId} 
-			onBack={() => setViewingProgramId(null)} 
-			onEdit={() => {
-				window.location.href = `/dashboard/super-admin/program/${viewingProgramId}/edit`;
-			}} 
-		/>;
-	}
 
 	const handleDelete = (programId: string) => {
 		setProgramToDelete(programId);
@@ -184,3 +167,4 @@ export const ProgramList = ({
 		</div>
 	);
 };
+
