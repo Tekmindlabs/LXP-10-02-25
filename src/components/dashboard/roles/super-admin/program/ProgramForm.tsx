@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { api } from "@/utils/api";
 import { Status } from "@prisma/client";
 import { toast } from "@/hooks/use-toast";
@@ -147,6 +147,25 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 		calendarId: selectedProgram?.calendarId || "NO_SELECTION",
 		coordinatorId: selectedProgram?.coordinatorId || "NO_SELECTION",
 		status: selectedProgram?.status || Status.ACTIVE,
+		termSystem: selectedProgram?.termSystem || {
+			type: "SEMESTER",
+			terms: [
+				{
+					name: "Semester 1",
+					startDate: new Date(),
+					endDate: new Date(),
+					type: "SEMESTER",
+					assessmentPeriods: []
+				},
+				{
+					name: "Semester 2",
+					startDate: new Date(),
+					endDate: new Date(),
+					type: "SEMESTER",
+					assessmentPeriods: []
+				}
+			]
+		},
 		assessmentSystem: selectedProgram?.assessmentSystem || {
 			type: AssessmentSystemType.MARKING_SCHEME,
 			markingScheme: {
@@ -212,6 +231,37 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 		},
 	});
 
+	const handleAddTerm = (type: TermSystemType) => {
+		const newTermNumber = formData.termSystem?.terms.length ? formData.termSystem.terms.length + 1 : 1;
+		const newTerm = {
+			name: `${type} ${newTermNumber}`,
+			startDate: new Date(),
+			endDate: new Date(),
+			type: type,
+			assessmentPeriods: []
+		};
+
+		setFormData({
+			...formData,
+			termSystem: {
+				type: type,
+				terms: [...(formData.termSystem?.terms || []), newTerm]
+			}
+		});
+	};
+
+	const handleRemoveTerm = (index: number) => {
+		const newTerms = [...formData.termSystem!.terms];
+		newTerms.splice(index, 1);
+		setFormData({
+			...formData,
+			termSystem: {
+				...formData.termSystem!,
+				terms: newTerms
+			}
+		});
+	};
+
 	const resetForm = () => {
 		setFormData({
 			name: "",
@@ -219,6 +269,25 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 			calendarId: "NO_SELECTION",
 			coordinatorId: "NO_SELECTION",
 			status: Status.ACTIVE,
+			termSystem: {
+				type: "SEMESTER",
+				terms: [
+					{
+						name: "Semester 1",
+						startDate: new Date(),
+						endDate: new Date(),
+						type: "SEMESTER",
+						assessmentPeriods: []
+					},
+					{
+						name: "Semester 2",
+						startDate: new Date(),
+						endDate: new Date(),
+						type: "SEMESTER",
+						assessmentPeriods: []
+					}
+				]
+			},
 			assessmentSystem: {
 				type: AssessmentSystemType.MARKING_SCHEME,
 				markingScheme: {
@@ -477,6 +546,114 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 								))}
 							</SelectContent>
 						</Select>
+					</div>
+
+					<div className="space-y-4 border p-4 rounded-lg">
+						<h3 className="text-lg font-semibold">Term System</h3>
+						<div>
+							<Label>System Type</Label>
+							<Select
+								value={formData.termSystem?.type || "SEMESTER"}
+								onValueChange={(value: TermSystemType) => {
+									const config = termConfigs[value];
+									setFormData({
+										...formData,
+										termSystem: {
+											type: value,
+											terms: config.terms.map(term => ({
+												name: term.name,
+												startDate: new Date(),
+												endDate: new Date(),
+												type: value,
+												assessmentPeriods: []
+											}))
+										}
+									});
+								}}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select term system" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="SEMESTER">Semester Based</SelectItem>
+									<SelectItem value="TERM">Term Based</SelectItem>
+									<SelectItem value="QUARTER">Quarter Based</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						<div className="space-y-2">
+							{formData.termSystem?.terms.map((term, index) => (
+								<div key={index} className="space-y-2 border p-2 rounded">
+									<div className="flex justify-between items-center">
+										<h4 className="font-medium">{term.name}</h4>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => handleRemoveTerm(index)}
+											className="text-red-500 hover:text-red-700"
+										>
+											<Trash2 className="h-4 w-4" />
+										</Button>
+									</div>
+									<div className="grid grid-cols-2 gap-2">
+										<div>
+											<Label>Start Date</Label>
+											<Input
+												type="date"
+												value={term.startDate.toISOString().split('T')[0]}
+												onChange={(e) => {
+													const newTerms = [...formData.termSystem!.terms];
+													newTerms[index] = {
+														...term,
+														startDate: new Date(e.target.value)
+													};
+													setFormData({
+														...formData,
+														termSystem: {
+															...formData.termSystem!,
+															terms: newTerms
+														}
+													});
+												}}
+											/>
+										</div>
+										<div>
+											<Label>End Date</Label>
+											<Input
+												type="date"
+												value={term.endDate.toISOString().split('T')[0]}
+												onChange={(e) => {
+													const newTerms = [...formData.termSystem!.terms];
+													newTerms[index] = {
+														...term,
+														endDate: new Date(e.target.value)
+													};
+													setFormData({
+														...formData,
+														termSystem: {
+															...formData.termSystem!,
+															terms: newTerms
+														}
+													});
+												}}
+											/>
+										</div>
+									</div>
+								</div>
+							))}
+							
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="w-full mt-2"
+								onClick={() => handleAddTerm(formData.termSystem?.type || 'SEMESTER')}
+							>
+								<Plus className="h-4 w-4 mr-2" />
+								Add
+							</Button>
+						</div>
 					</div>
 
 					<div className="space-y-4 border p-4 rounded-lg">
@@ -834,92 +1011,8 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 						)}
 					</div>
 
-					<div className="space-y-4 border p-4 rounded-lg">
-						<h3 className="text-lg font-semibold">Term System</h3>
-						<div>
-							<Label>System Type</Label>
-							<Select
-								value={formData.termSystem?.type || "SEMESTER"}
-								onValueChange={(value: TermSystemType) => {
-									const config = termConfigs[value];
-									setFormData({
-										...formData,
-										termSystem: {
-											type: value,
-											terms: config.terms.map(term => ({
-												name: term.name,
-												startDate: new Date(),
-												endDate: new Date(),
-												type: value,
-												assessmentPeriods: []
-											}))
-										}
-									});
-								}}
-							>
-								<SelectTrigger>
-									<SelectValue placeholder="Select term system" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="SEMESTER">Semester Based</SelectItem>
-									<SelectItem value="TERM">Term Based</SelectItem>
-									<SelectItem value="QUARTER">Quarter Based</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
 
-						{formData.termSystem?.terms.map((term, index) => (
-							<div key={index} className="space-y-2 border p-2 rounded">
-								<div className="flex justify-between items-center">
-									<h4 className="font-medium">{term.name}</h4>
-								</div>
-								<div className="grid grid-cols-2 gap-2">
-									<div>
-										<Label>Start Date</Label>
-										<Input
-											type="date"
-											value={term.startDate.toISOString().split('T')[0]}
-											onChange={(e) => {
-												const newTerms = [...formData.termSystem!.terms];
-												newTerms[index] = {
-													...term,
-													startDate: new Date(e.target.value)
-												};
-												setFormData({
-													...formData,
-													termSystem: {
-														...formData.termSystem!,
-														terms: newTerms
-													}
-												});
-											}}
-										/>
-									</div>
-									<div>
-										<Label>End Date</Label>
-										<Input
-											type="date"
-											value={term.endDate.toISOString().split('T')[0]}
-											onChange={(e) => {
-												const newTerms = [...formData.termSystem!.terms];
-												newTerms[index] = {
-													...term,
-													endDate: new Date(e.target.value)
-												};
-												setFormData({
-													...formData,
-													termSystem: {
-														...formData.termSystem!,
-														terms: newTerms
-													}
-												});
-											}}
-										/>
-									</div>
-								</div>
-							</div>
-						))}
-					</div>
+
 
 					<Button type="submit" className="w-full" disabled={createMutation.status === 'pending' || updateMutation.status === 'pending'}>
 						{createMutation.status === 'pending' || updateMutation.status === 'pending' ? 'Saving...' : selectedProgram ? "Update" : "Create"} Program
