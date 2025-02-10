@@ -2,10 +2,12 @@
 
 import { Button } from "@/components/ui/button";
 import { ProgramView } from "@/components/dashboard/roles/super-admin/program/ProgramView";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 
-export default function ViewProgramPage({ params }: { params: { id: string } }) {
+export default function ViewProgramPage() {
 	const router = useRouter();
+	const params = useParams();
+	const programId = typeof params?.id === 'string' ? params.id : '';
 
 	return (
 		<div className="space-y-6">
@@ -15,7 +17,7 @@ export default function ViewProgramPage({ params }: { params: { id: string } }) 
 			</div>
 
 			<ProgramView 
-				programId={params.id}
+				programId={programId}
 				onEdit={(id) => router.push(`/dashboard/super-admin/program/${id}/edit`)}
 			/>
 		</div>

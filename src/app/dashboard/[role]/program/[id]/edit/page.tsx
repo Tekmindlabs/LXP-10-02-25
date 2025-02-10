@@ -4,11 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProgramForm } from "@/components/dashboard/roles/super-admin/program/ProgramForm";
 import { api } from "@/utils/api";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 
-export default function EditProgramPage({ params }: { params: { id: string } }) {
+export default function EditProgramPage() {
 	const router = useRouter();
-	const { data: program } = api.program.getById.useQuery(params.id);
+	const params = useParams();
+	const programId = typeof params?.id === 'string' ? params.id : '';
+	
+	const { data: program } = api.program.getById.useQuery(programId);
 	const { data: coordinators } = api.program.getAvailableCoordinators.useQuery();
 
 	if (!program) {

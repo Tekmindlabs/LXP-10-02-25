@@ -5,13 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/utils/api";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-
+import { AssessmentSystemType } from "@/types/assessment";
 
 interface ProgramViewProps {
 	programId: string;
 	onEdit: (id: string) => void;
 }
-
 
 export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 	const router = useRouter();
@@ -34,7 +33,7 @@ export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 			<div className="flex items-center justify-between">
 				<h2 className="text-2xl font-bold">{program.name}</h2>
 				<div className="space-x-2">
-					<Button variant="outline" onClick={() => router.push(`/dashboard/super-admin/program/${programId}/edit`)}>
+					<Button variant="outline" onClick={() => onEdit(programId)}>
 						Edit
 					</Button>
 					<Button variant="outline" onClick={() => router.back()}>
@@ -44,7 +43,6 @@ export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 			</div>
 
 			<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
 				<Card>
 					<CardHeader>
 						<CardTitle>Overview</CardTitle>
@@ -83,16 +81,17 @@ export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 							</div>
 							<div>
 								<dt className="font-medium">Assessment System</dt>
-								<dd>{program.assessmentSystem?.type || 'Not configured'}</dd>
+								<dd>
+									{program.assessmentSystem ? 
+										(program.assessmentSystem.type as AssessmentSystemType).replace('_', ' ') 
+										: 'Not configured'}
+								</dd>
 							</div>
 						</dl>
 					</CardContent>
 				</Card>
-
-				{/* Add more cards for detailed analytics */}
-
-
-				</div>
 			</div>
-		);
-	};
+		</div>
+	);
+};
+
