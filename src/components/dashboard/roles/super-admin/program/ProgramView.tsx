@@ -5,7 +5,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/utils/api";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { AssessmentSystemType } from "@/types/assessment";
+import { AssessmentSystemType, Program } from "@/types/assessment";
+
+type ProgramResponse = Program & {
+	assessmentSystem?: {
+		type: AssessmentSystemType;
+	};
+	termStructures?: Array<{
+		id: string;
+		name: string;
+		startDate: Date;
+		endDate: Date;
+		academicTerms: Array<{
+			name: string;
+			startDate: Date;
+			endDate: Date;
+		}>;
+	}>;
+};
 
 interface ProgramViewProps {
 	programId: string;
@@ -14,7 +31,8 @@ interface ProgramViewProps {
 
 export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 	const router = useRouter();
-	const { data: program, isLoading } = api.program.getById.useQuery(programId);
+	const { data: program, isLoading } = api.program.getById.useQuery(programId) as { data: ProgramResponse | undefined, isLoading: boolean };
+
 
 	if (isLoading) {
 		return (
@@ -89,17 +107,22 @@ export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 							</div>
 							{program.assessmentSystem?.type === AssessmentSystemType.CGPA && program.termStructures && (
 								<>
-									<div className="mt-4">
+									<div>
 										<dt className="font-medium">Term System</dt>
-										<dd>{program.termStructures[0].type === 'semesterBased' ? 'Semester Based' : 'Term Based'}</dd>
+										<dd>{program.termSystem === 'SEMESTER' ? 'Semester Based' : program.termSystem === 'TERM' ? 'Term Based' : 'Quarter Based'}</dd>
 									</div>
-									<div className="mt-2">
+									<div>
 										<dt className="font-medium">Terms</dt>
 										<dd>
 											<ul>
 												{program.termStructures.map((termStructure) => (
 													<li key={termStructure.id}>
 														{termStructure.name}: {new Date(termStructure.startDate).toLocaleDateString()} - {new Date(termStructure.endDate).toLocaleDateString()}
+														{termStructure.academicTerms.map((term: { name: string; startDate: Date; endDate: Date }) => (
+															<div key={term.name} className="ml-4 text-sm">
+																{term.name}
+															</div>
+														))}
 													</li>
 												))}
 											</ul>

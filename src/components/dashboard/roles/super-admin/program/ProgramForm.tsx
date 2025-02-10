@@ -16,19 +16,28 @@ import { toast } from "@/hooks/use-toast";
 import type { TRPCClientErrorLike } from "@trpc/client";
 import { AssessmentSystemType } from "@/types/assessment";
 
-type TermType = 'SEMESTER' | 'TERM';
-const termConfigs = {
-	semesterBased: {
+type TermSystemType = 'SEMESTER' | 'TERM' | 'QUARTER';
+
+const termConfigs: Record<TermSystemType, { terms: Array<{ name: string }> }> = {
+	SEMESTER: {
 		terms: [
 			{ name: 'Semester 1' },
 			{ name: 'Semester 2' }
 		]
 	},
-	termBased: {
+	TERM: {
 		terms: [
 			{ name: 'Term 1' },
 			{ name: 'Term 2' },
 			{ name: 'Term 3' }
+		]
+	},
+	QUARTER: {
+		terms: [
+			{ name: 'Quarter 1' },
+			{ name: 'Quarter 2' },
+			{ name: 'Quarter 3' },
+			{ name: 'Quarter 4' }
 		]
 	}
 };
@@ -41,12 +50,12 @@ interface ProgramFormData {
 	coordinatorId?: string;
 	status: Status;
 	termSystem?: {
-		type: 'semesterBased' | 'termBased';
+		type: TermSystemType;
 		terms: Array<{
 			name: string;
 			startDate: Date;
 			endDate: Date;
-			type: TermType;
+			type: TermSystemType;
 			assessmentPeriods: Array<{
 				name: string;
 				startDate: Date;
@@ -478,7 +487,6 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 							<Select
 								value={formData.assessmentSystem.type}
 								onValueChange={handleAssessmentTypeChange}
-
 							>
 								<SelectTrigger className="w-full">
 									<SelectValue placeholder="Select Assessment Type" />
@@ -596,95 +604,6 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 									))}
 								</div>
 							</div>
-
-							<div className="space-y-4 border p-4 rounded-lg">
-								<h3 className="text-lg font-semibold">Term System</h3>
-								
-								<div>
-									<Label>System Type</Label>
-									<Select
-										value={formData.termSystem?.type || "semesterBased"}
-										onValueChange={(value: 'semesterBased' | 'termBased') => {
-											const config = termConfigs[value];
-											setFormData({
-												...formData,
-												termSystem: {
-													type: value,
-													terms: config.terms.map(term => ({
-														name: term.name,
-														startDate: new Date(),
-														endDate: new Date(),
-														type: value === 'semesterBased' ? 'SEMESTER' : 'TERM',
-														assessmentPeriods: []
-													}))
-												}
-											});
-										}}
-									>
-										<SelectTrigger>
-											<SelectValue placeholder="Select term system" />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="semesterBased">Semester Based</SelectItem>
-											<SelectItem value="termBased">Term Based</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-
-								{formData.termSystem?.terms.map((term, index) => (
-									<div key={index} className="space-y-2 border p-2 rounded">
-										<div className="flex justify-between items-center">
-											<h4 className="font-medium">{term.name}</h4>
-										</div>
-										
-										<div className="grid grid-cols-2 gap-2">
-											<div>
-												<Label>Start Date</Label>
-												<Input
-													type="date"
-													value={term.startDate.toISOString().split('T')[0]}
-													onChange={(e) => {
-														const newTerms = [...formData.termSystem!.terms];
-														newTerms[index] = {
-															...term,
-															startDate: new Date(e.target.value)
-														};
-														setFormData({
-															...formData,
-															termSystem: {
-																...formData.termSystem!,
-																terms: newTerms
-															}
-														});
-													}}
-												/>
-											</div>
-											<div>
-												<Label>End Date</Label>
-												<Input
-													type="date"
-													value={term.endDate.toISOString().split('T')[0]}
-													onChange={(e) => {
-														const newTerms = [...formData.termSystem!.terms];
-														newTerms[index] = {
-															...term,
-															endDate: new Date(e.target.value)
-														};
-														setFormData({
-															...formData,
-															termSystem: {
-																...formData.termSystem!,
-																terms: newTerms
-															}
-														});
-													}}
-												/>
-											</div>
-										</div>
-									</div>
-								))}
-							</div>
-							</>
 						)}
 
 						{formData.assessmentSystem.type === AssessmentSystemType.RUBRIC && (
@@ -786,131 +705,220 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 
 						{formData.assessmentSystem.type === AssessmentSystemType.CGPA && (
 							<>
-							<div className="space-y-4">
-								<div>
-									<Label>Grade Points Configuration</Label>
-									{formData.assessmentSystem.cgpaConfig?.gradePoints.map((grade, index) => (
-										<div key={index} className="grid grid-cols-4 gap-2 mt-2">
-											<Input
-												placeholder="Grade"
-												value={grade.grade}
-												onChange={(e) => {
-													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
-													newGradePoints[index] = { ...grade, grade: e.target.value };
-													setFormData({
-														...formData,
-														assessmentSystem: {
-															...formData.assessmentSystem,
-															cgpaConfig: {
-																...formData.assessmentSystem.cgpaConfig!,
-																gradePoints: newGradePoints
+								<div className="space-y-4">
+									<div>
+										<Label>Grade Points Configuration</Label>
+										{formData.assessmentSystem.cgpaConfig?.gradePoints.map((grade, index) => (
+											<div key={index} className="grid grid-cols-4 gap-2 mt-2">
+												<Input
+													placeholder="Grade"
+													value={grade.grade}
+													onChange={(e) => {
+														const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+														newGradePoints[index] = { ...grade, grade: e.target.value };
+														setFormData({
+															...formData,
+															assessmentSystem: {
+																...formData.assessmentSystem,
+																cgpaConfig: {
+																	...formData.assessmentSystem.cgpaConfig!,
+																	gradePoints: newGradePoints
+																}
 															}
-														}
-													});
-												}}
-											/>
-											<Input
-												type="number"
-												placeholder="Points"
-												value={grade.points}
-												onChange={(e) => {
-													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
-													newGradePoints[index] = { ...grade, points: Number(e.target.value) };
-													setFormData({
-														...formData,
-														assessmentSystem: {
-															...formData.assessmentSystem,
-															cgpaConfig: {
-																...formData.assessmentSystem.cgpaConfig!,
-																gradePoints: newGradePoints
+														});
+													}}
+												/>
+												<Input
+													type="number"
+													placeholder="Points"
+													value={grade.points}
+													onChange={(e) => {
+														const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+														newGradePoints[index] = { ...grade, points: Number(e.target.value) };
+														setFormData({
+															...formData,
+															assessmentSystem: {
+																...formData.assessmentSystem,
+																cgpaConfig: {
+																	...formData.assessmentSystem.cgpaConfig!,
+																	gradePoints: newGradePoints
+																}
 															}
-														}
-													});
-												}}
-											/>
-											<Input
-												type="number"
-												placeholder="Min %"
-												value={grade.minPercentage}
-												onChange={(e) => {
-													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
-													newGradePoints[index] = { ...grade, minPercentage: Number(e.target.value) };
-													setFormData({
-														...formData,
-														assessmentSystem: {
-															...formData.assessmentSystem,
-															cgpaConfig: {
-																...formData.assessmentSystem.cgpaConfig!,
-																gradePoints: newGradePoints
+														});
+													}}
+												/>
+												<Input
+													type="number"
+													placeholder="Min %"
+													value={grade.minPercentage}
+													onChange={(e) => {
+														const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+														newGradePoints[index] = { ...grade, minPercentage: Number(e.target.value) };
+														setFormData({
+															...formData,
+															assessmentSystem: {
+																...formData.assessmentSystem,
+																cgpaConfig: {
+																	...formData.assessmentSystem.cgpaConfig!,
+																	gradePoints: newGradePoints
+																}
 															}
-														}
-													});
-												}}
-											/>
-											<Input
-												type="number"
-												placeholder="Max %"
-												value={grade.maxPercentage}
-												onChange={(e) => {
-													const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
-													newGradePoints[index] = { ...grade, maxPercentage: Number(e.target.value) };
-													setFormData({
-														...formData,
-														assessmentSystem: {
-															...formData.assessmentSystem,
-															cgpaConfig: {
-																...formData.assessmentSystem.cgpaConfig!,
-																gradePoints: newGradePoints
+														});
+													}}
+												/>
+												<Input
+													type="number"
+													placeholder="Max %"
+													value={grade.maxPercentage}
+													onChange={(e) => {
+														const newGradePoints = [...formData.assessmentSystem.cgpaConfig!.gradePoints];
+														newGradePoints[index] = { ...grade, maxPercentage: Number(e.target.value) };
+														setFormData({
+															...formData,
+															assessmentSystem: {
+																...formData.assessmentSystem,
+																cgpaConfig: {
+																	...formData.assessmentSystem.cgpaConfig!,
+																	gradePoints: newGradePoints
+																}
 															}
-														}
-													});
-												}}
-											/>
-										</div>
-									))}
-								</div>
+														});
+													}}
+												/>
+											</div>
+										))}
+									</div>
 
-								<div className="flex items-center space-x-2">
-									<Checkbox
-										id="semesterWeightage"
-										checked={formData.assessmentSystem.cgpaConfig?.semesterWeightage}
-										onCheckedChange={(checked) => {
-											setFormData({
-												...formData,
-												assessmentSystem: {
-													...formData.assessmentSystem,
-													cgpaConfig: {
-														...formData.assessmentSystem.cgpaConfig!,
-														semesterWeightage: checked as boolean
+									<div className="flex items-center space-x-2">
+										<Checkbox
+											id="semesterWeightage"
+											checked={formData.assessmentSystem.cgpaConfig?.semesterWeightage}
+											onCheckedChange={(checked) => {
+												setFormData({
+													...formData,
+													assessmentSystem: {
+														...formData.assessmentSystem,
+														cgpaConfig: {
+															...formData.assessmentSystem.cgpaConfig!,
+															semesterWeightage: checked as boolean
+														}
 													}
-												}
-											});
-										}}
-									/>
-									<Label htmlFor="semesterWeightage">Apply semester weightage</Label>
-								</div>
+												});
+											}}
+										/>
+										<Label htmlFor="semesterWeightage">Apply semester weightage</Label>
+									</div>
 
-								<div className="flex items-center space-x-2">
-									<Checkbox
-										id="includeBacklogs"
-										checked={formData.assessmentSystem.cgpaConfig?.includeBacklogs}
-										onCheckedChange={(checked) => {
-											setFormData({
-												...formData,
-												assessmentSystem: {
-													...formData.assessmentSystem,
-													cgpaConfig: {
-														...formData.assessmentSystem.cgpaConfig!,
-														includeBacklogs: checked as boolean
+									<div className="flex items-center space-x-2">
+										<Checkbox
+											id="includeBacklogs"
+											checked={formData.assessmentSystem.cgpaConfig?.includeBacklogs}
+											onCheckedChange={(checked) => {
+												setFormData({
+													...formData,
+													assessmentSystem: {
+														...formData.assessmentSystem,
+														cgpaConfig: {
+															...formData.assessmentSystem.cgpaConfig!,
+															includeBacklogs: checked as boolean
+														}
 													}
-												}
-											});
-										}}
-									/>
-									<Label htmlFor="includeBacklogs">Include backlogs in CGPA calculation</Label>
+												});
+											}}
+										/>
+										<Label htmlFor="includeBacklogs">Include backlogs in CGPA calculation</Label>
+									</div>
+								</div>
+							</>
+
+						)}
+					</div>
+
+					<div className="space-y-4 border p-4 rounded-lg">
+						<h3 className="text-lg font-semibold">Term System</h3>
+						<div>
+							<Label>System Type</Label>
+							<Select
+								value={formData.termSystem?.type || "SEMESTER"}
+								onValueChange={(value: TermSystemType) => {
+									const config = termConfigs[value];
+									setFormData({
+										...formData,
+										termSystem: {
+											type: value,
+											terms: config.terms.map(term => ({
+												name: term.name,
+												startDate: new Date(),
+												endDate: new Date(),
+												type: value,
+												assessmentPeriods: []
+											}))
+										}
+									});
+								}}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select term system" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="SEMESTER">Semester Based</SelectItem>
+									<SelectItem value="TERM">Term Based</SelectItem>
+									<SelectItem value="QUARTER">Quarter Based</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						{formData.termSystem?.terms.map((term, index) => (
+							<div key={index} className="space-y-2 border p-2 rounded">
+								<div className="flex justify-between items-center">
+									<h4 className="font-medium">{term.name}</h4>
+								</div>
+								<div className="grid grid-cols-2 gap-2">
+									<div>
+										<Label>Start Date</Label>
+										<Input
+											type="date"
+											value={term.startDate.toISOString().split('T')[0]}
+											onChange={(e) => {
+												const newTerms = [...formData.termSystem!.terms];
+												newTerms[index] = {
+													...term,
+													startDate: new Date(e.target.value)
+												};
+												setFormData({
+													...formData,
+													termSystem: {
+														...formData.termSystem!,
+														terms: newTerms
+													}
+												});
+											}}
+										/>
+									</div>
+									<div>
+										<Label>End Date</Label>
+										<Input
+											type="date"
+											value={term.endDate.toISOString().split('T')[0]}
+											onChange={(e) => {
+												const newTerms = [...formData.termSystem!.terms];
+												newTerms[index] = {
+													...term,
+													endDate: new Date(e.target.value)
+												};
+												setFormData({
+													...formData,
+													termSystem: {
+														...formData.termSystem!,
+														terms: newTerms
+													}
+												});
+											}}
+										/>
+									</div>
 								</div>
 							</div>
-						)}
+						))}
 					</div>
 
 					<Button type="submit" className="w-full" disabled={createMutation.status === 'pending' || updateMutation.status === 'pending'}>

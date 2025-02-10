@@ -1,3 +1,5 @@
+import { Status } from "@prisma/client";
+
 export enum TermSystemType {
 	SEMESTER = 'SEMESTER',
 	TERM = 'TERM',
@@ -20,9 +22,40 @@ export interface AcademicTerm {
 }
 
 export interface TermSystem {
-	type: 'semesterBased' | 'termBased';
+	type: TermSystemType;
 	terms: AcademicTerm[];
 }
+
+export interface Program {
+	id: string;
+	name: string;
+	description?: string;
+	status: Status;
+	termSystem: TermSystemType;
+	coordinator?: {
+		user: {
+			name: string;
+		};
+	};
+	calendar: {
+		name: string;
+	};
+	classGroups: any[];
+	assessmentSystem?: AssessmentSystem;
+	termStructures?: Array<{
+		id: string;
+		name: string;
+		startDate: Date;
+		endDate: Date;
+		academicTerms: Array<{
+			name: string;
+			startDate: Date;
+			endDate: Date;
+		}>;
+	}>;
+}
+
+
 
 export interface CGPAGradePoint {
 	grade: string;
@@ -98,6 +131,9 @@ export interface Assessment {
 	markingSchemeId?: string;
 	rubricId?: string;
 }
+
+
+
 
 export enum AssessmentType {
 	QUIZ = 'QUIZ',

@@ -1,7 +1,24 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, Status, TermSystemType } from "@prisma/client";
+
+// Define term system input schema
+const termSystemInput = z.object({
+  type: z.nativeEnum(TermSystemType),
+  terms: z.array(z.object({
+    name: z.string(),
+    startDate: z.date(),
+    endDate: z.date(),
+    type: z.nativeEnum(TermSystemType),
+    assessmentPeriods: z.array(z.object({
+      name: z.string(),
+      startDate: z.date(),
+      endDate: z.date(),
+      weight: z.number()
+    }))
+  }))
+});
 
 const includeConfig = {
   coordinator: {
@@ -193,22 +210,174 @@ export const programRouter = createTRPCRouter({
         description: z.string().optional(),
         calendarId: z.string(),
         coordinatorId: z.string().optional(),
-        status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).default("ACTIVE"),
-        termSystem: z.object({
-          type: z.enum(['semesterBased', 'termBased']),
-          terms: z.array(z.object({
+        status: z.nativeEnum(Status).default(Status.ACTIVE),
+        termSystem: termSystemInput.optional(),
+        assessmentSystem: z.object({
+          type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID", "CGPA"]),
+          markingScheme: z.object({
+          maxMarks: z.number().min(0),
+          passingMarks: z.number().min(0),
+          gradingScale: z.array(z.object({
+            grade: z.string(),
+            minPercentage: z.number().min(0).max(100),
+            maxPercentage: z.number().min(0).max(100)
+          }))
+          }).optional(),
+          rubric: z.object({
           name: z.string(),
-          startDate: z.date(),
-          endDate: z.date(),
-          type: z.enum(['SEMESTER', 'TERM', 'QUARTER']),
-          assessmentPeriods: z.array(z.object({
+          description: z.string().optional(),
+          criteria: z.array(z.object({
             name: z.string(),
-            startDate: z.date(),
-            endDate: z.date(),
-            weight: z.number()
+            description: z.string().optional(),
+            levels: z.array(z.object({
+            name: z.string(),
+            points: z.number().min(0),
+            description: z.string().optional()
+            }))
           }))
-          }))
-        }).optional(),
+          }).optional(),
+          cgpaConfig: z.object({
+          gradePoints: z.array(z.object({
+            grade: z.string(),
+            points: z.number(),
+            minPercentage: z.number().min(0).max(100),
+            maxPercentage: z.number().min(0).max(100)
+          })),
+          semesterWeightage: z.boolean(),
+          includeBacklogs: z.boolean()
+          }).optional()
+        }).optional()
+      })
+    )
+
+    .mutation(async ({ ctx, input }) => {
+      try {
+        // Fetch calendar and ensure it has an academic year and terms
+        const calendar = await ctx.prisma.calendar.findUnique({
+          where: { id: input.calendarId },
+          include: { academicYear: true, terms: true }
+        });
+
+        if (!calendar?.academicYear?.id || !calendar.terms[0]?.id) {
+          throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Calendar must have an academic year and at least one term",
+          });
+        }
+
+        const academicYearId = calendar.academicYear.id;
+        const termId = calendar.terms[0].id;
+
+        // Validate coordinator if provided
+        if (input.coordinatorId) {
+          const coordinator = await ctx.prisma.coordinatorProfile.findUnique({
+          where: { id: input.coordinatorId },
+          });
+
+          if (!coordinator) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Coordinator not found",
+          });
+          }
+        }
+
+        // Create program with all relationships
+        const program = await ctx.prisma.program.create({
+          data: {
+            name: input.name,
+            description: input.description,
+            calendar: { connect: { id: input.calendarId } },
+            coordinator: input.coordinatorId ? { connect: { id: input.coordinatorId } } : undefined,
+            status: input.status,
+            termSystem: input.termSystem?.type,
+            termStructures: input.termSystem ? {
+              create: input.termSystem.terms.map((term, index) => ({
+              name: term.name,
+              startDate: term.startDate,
+              endDate: term.endDate,
+              order: index + 1,
+              weight: 1.0,
+              status: Status.ACTIVE,
+              academicYear: { connect: { id: academicYearId } },
+              academicTerms: {
+                create: {
+                name: term.name,
+                status: Status.ACTIVE,
+                assessmentWeightage: 100,
+                term: { connect: { id: termId } },
+                assessmentPeriods: {
+                  create: term.assessmentPeriods
+                }
+                }
+              }
+              }))
+            } : undefined,
+
+            ...(input.assessmentSystem && {
+            assessmentSystem: input.assessmentSystem ? {
+              create: {
+              name: input.name + " Assessment System",
+              type: input.assessmentSystem.type,
+              markingSchemes: input.assessmentSystem.markingScheme ? {
+                create: {
+                name: "Default Marking Scheme",
+                maxMarks: input.assessmentSystem.markingScheme.maxMarks,
+                passingMarks: input.assessmentSystem.markingScheme.passingMarks,
+                gradingScale: {
+                  createMany: {
+                  data: input.assessmentSystem.markingScheme.gradingScale
+                  }
+                }
+                }
+              } : undefined,
+              rubrics: input.assessmentSystem.rubric ? {
+                create: {
+                name: input.assessmentSystem.rubric.name,
+                description: input.assessmentSystem.rubric.description,
+                criteria: {
+                  create: input.assessmentSystem.rubric.criteria.map(criterion => ({
+                  name: criterion.name,
+                  description: criterion.description,
+                  levels: {
+                    createMany: {
+                    data: criterion.levels
+                    }
+                  }
+                  }))
+                }
+                }
+              } : undefined
+              }
+            } : undefined
+
+
+            })
+          },
+          include: includeConfig
+        });
+
+        return program;
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create program",
+          cause: error,
+        });
+      }
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        calendarId: z.string().optional(),
+        coordinatorId: z.string().optional(),
+        status: z.nativeEnum(Status).optional(),
+        termSystem: termSystemInput.optional(),
         assessmentSystem: z.object({
           type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID", "CGPA"]),
           markingScheme: z.object({
@@ -238,180 +407,17 @@ export const programRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        // Validate calendar exists and get settings
-        const calendar = await ctx.prisma.calendar.findUnique({
-          where: { id: input.calendarId },
-          include: { terms: true }
-        });
-
-        if (!calendar) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Calendar not found",
-          });
-        }
-
-        // Validate coordinator if provided
-        if (input.coordinatorId) {
-            const coordinator = await ctx.prisma.coordinatorProfile.findUnique({
-            where: { id: input.coordinatorId },
-          });
-
-          if (!coordinator) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Coordinator not found",
-            });
-          }
-        }
-
-        const program = await ctx.prisma.program.create({
-          data: {
-          name: input.name,
-          description: input.description,
-          calendar: {
-            connect: { id: input.calendarId }
-          },
-          coordinator: input.coordinatorId
-            ? {
-              connect: { id: input.coordinatorId },
-            }
-            : undefined,
-            status: input.status,
-            termSystem: input.termSystem?.type || 'SEMESTER',
-            termStructures: input.termSystem ? {
-            create: input.termSystem.terms.map((term, index) => ({
-              name: term.name,
-              startDate: term.startDate,
-              endDate: term.endDate,
-              order: index + 1,
-              weight: 1.0,
-              status: 'ACTIVE',
-              academicTerms: {
-              create: {
-                name: term.name,
-                status: 'ACTIVE',
-                assessmentWeightage: 100,
-                assessmentPeriods: {
-                create: term.assessmentPeriods
-                }
-              }
-              }
-            }))
-            } : undefined,
-            ...(input.assessmentSystem && {
-            assessmentSystem: {
-              create: {
-              name: input.name + " Assessment System",
-              description: "Default assessment system for " + input.name,
-              type: input.assessmentSystem.type,
-              ...(input.assessmentSystem.markingScheme && {
-                markingSchemes: {
-                create: {
-                  name: "Default Marking Scheme",
-                  maxMarks: input.assessmentSystem.markingScheme.maxMarks,
-                  passingMarks: input.assessmentSystem.markingScheme.passingMarks,
-                  gradingScale: {
-                  createMany: {
-                    data: input.assessmentSystem.markingScheme.gradingScale
-                  }
-                  }
-                }
-                }
-              }),
-              ...(input.assessmentSystem.rubric && {
-                rubrics: {
-                create: {
-                  name: input.assessmentSystem.rubric.name,
-                  description: input.assessmentSystem.rubric.description,
-                  criteria: {
-                  create: input.assessmentSystem.rubric.criteria.map(criterion => ({
-                    name: criterion.name,
-                    description: criterion.description,
-                    levels: {
-                    createMany: {
-                      data: criterion.levels
-                    }
-                    }
-                  }))
-                  }
-                }
-                }
-              })
-              }
-            }
-            })
-          },
-          include: includeConfig
-        });
-
-        return program;
-      } catch (error) {
-        if (error instanceof TRPCError) throw error;
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to create program",
-          cause: error,
-        });
-      }
-    }),
-
-  update: protectedProcedure
-    .input(
-      z.object({
-        id: z.string(),
-        name: z.string().optional(),
-        description: z.string().optional(),
-        calendarId: z.string().optional(),
-        coordinatorId: z.string().optional(),
-        status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).optional(),
-        termSystem: z.object({
-        type: z.enum(['semesterBased', 'termBased']),
-        terms: z.array(z.object({
-          name: z.string(),
-          startDate: z.date(),
-          endDate: z.date(),
-          type: z.enum(['SEMESTER', 'TERM', 'QUARTER']),
-          assessmentPeriods: z.array(z.object({
-          name: z.string(),
-          startDate: z.date(),
-          endDate: z.date(),
-          weight: z.number()
-          }))
-        }))
-        }).optional(),
-        assessmentSystem: z.object({
-        type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID", "CGPA"]),
-        markingScheme: z.object({
-        maxMarks: z.number().min(0),
-        passingMarks: z.number().min(0),
-        gradingScale: z.array(z.object({
-          grade: z.string(),
-          minPercentage: z.number().min(0).max(100),
-          maxPercentage: z.number().min(0).max(100)
-        }))
-        }).optional(),
-        rubric: z.object({
-        name: z.string(),
-        description: z.string().optional(),
-        criteria: z.array(z.object({
-          name: z.string(),
-          description: z.string().optional(),
-          levels: z.array(z.object({
-          name: z.string(),
-          points: z.number().min(0),
-          description: z.string().optional()
-          }))
-        }))
-        }).optional()
-      }).optional()
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      try {
-        // Check if program exists
+        // Fetch existing program with necessary includes
         const existingProgram = await ctx.prisma.program.findUnique({
           where: { id: input.id },
+          include: {
+            calendar: {
+              include: {
+                academicYear: true,
+                terms: true
+              }
+            }
+          }
         });
 
         if (!existingProgram) {
@@ -421,19 +427,15 @@ export const programRouter = createTRPCRouter({
           });
         }
 
-        // Validate calendar if provided
-        if (input.calendarId) {
-          const calendar = await ctx.prisma.calendar.findUnique({
-            where: { id: input.calendarId },
+        if (!existingProgram?.calendar?.academicYear?.id || !existingProgram.calendar.terms[0]?.id) {
+          throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Program calendar must have an academic year and at least one term",
           });
-
-          if (!calendar) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Calendar not found",
-            });
-          }
         }
+
+        const existingAcademicYearId = existingProgram.calendar.academicYear.id;
+        const existingTermId = existingProgram.calendar.terms[0].id;
 
         // Validate coordinator if provided
         if (input.coordinatorId) {
@@ -449,118 +451,78 @@ export const programRouter = createTRPCRouter({
           }
         }
 
-        const { id, calendarId, coordinatorId, assessmentSystem, termSystem, ...data } = input;
-        
+        // Update program data
         const updatedProgram = await ctx.prisma.program.update({
-          where: { id },
+          where: { id: input.id },
           data: {
-            ...data,
-            calendar: calendarId ? { connect: { id: calendarId } } : undefined,
-            coordinator: coordinatorId ? { connect: { id: coordinatorId } } : undefined,
-            termSystem: termSystem?.type || undefined,
-            termStructures: termSystem ? {
-            deleteMany: {},
-            create: termSystem.terms.map((term, index) => ({
+            name: input.name,
+            description: input.description,
+            calendar: input.calendarId ? { connect: { id: input.calendarId } } : undefined,
+            coordinator: input.coordinatorId ? { connect: { id: input.coordinatorId } } : undefined,
+            status: input.status,
+            termSystem: input.termSystem?.type,
+            termStructures: input.termSystem ? {
+              deleteMany: {},
+              create: input.termSystem.terms.map((term, index) => ({
               name: term.name,
               startDate: term.startDate,
               endDate: term.endDate,
               order: index + 1,
               weight: 1.0,
-              status: 'ACTIVE',
+              status: Status.ACTIVE,
+              academicYear: { connect: { id: existingAcademicYearId } },
               academicTerms: {
-              create: {
+                create: {
                 name: term.name,
-                status: 'ACTIVE',
+                status: Status.ACTIVE,
                 assessmentWeightage: 100,
+                term: { connect: { id: existingTermId } },
                 assessmentPeriods: {
-                create: term.assessmentPeriods
+                  create: term.assessmentPeriods
+                }
                 }
               }
-              }
-            }))
+              }))
+
             } : undefined,
-            ...(assessmentSystem && {
-            assessmentSystem: {
-              upsert: {
-              create: {
-                name: data.name + " Assessment System",
-                description: "Default assessment system for " + data.name,
-                type: assessmentSystem.type,
-                ...(assessmentSystem.markingScheme && {
-                markingSchemes: {
-                  create: {
-                  name: "Default Marking Scheme",
-                  maxMarks: assessmentSystem.markingScheme.maxMarks,
-                  passingMarks: assessmentSystem.markingScheme.passingMarks,
-                  gradingScale: {
-                    createMany: {
-                    data: assessmentSystem.markingScheme.gradingScale
-                    }
-                  }
-                  }
-                }
-                }),
-                ...(assessmentSystem.rubric && {
-                rubrics: {
-                  create: {
-                  name: assessmentSystem.rubric.name,
-                  description: assessmentSystem.rubric.description,
-                  criteria: {
-                    create: assessmentSystem.rubric.criteria.map(criterion => ({
-                    name: criterion.name,
-                    description: criterion.description,
-                    levels: {
-                      createMany: {
-                      data: criterion.levels
-                      }
-                    }
-                    }))
-                  }
-                  }
-                }
-                })
-              },
+            assessmentSystem: input.assessmentSystem ? {
               update: {
-                type: assessmentSystem.type,
-                ...(assessmentSystem.markingScheme && {
-                markingSchemes: {
-                  deleteMany: {},
-                  create: {
-                  name: "Default Marking Scheme",
-                  maxMarks: assessmentSystem.markingScheme.maxMarks,
-                  passingMarks: assessmentSystem.markingScheme.passingMarks,
-                  gradingScale: {
+              type: input.assessmentSystem.type,
+              markingSchemes: input.assessmentSystem.markingScheme ? {
+                deleteMany: {},
+                create: [{
+                name: "Updated Marking Scheme",
+                maxMarks: input.assessmentSystem.markingScheme.maxMarks,
+                passingMarks: input.assessmentSystem.markingScheme.passingMarks,
+                gradingScale: {
+                  createMany: {
+                  data: input.assessmentSystem.markingScheme.gradingScale
+                  }
+                }
+                }]
+              } : undefined,
+              rubrics: input.assessmentSystem.rubric ? {
+                deleteMany: {},
+                create: [{
+                name: input.assessmentSystem.rubric.name,
+                description: input.assessmentSystem.rubric.description,
+                criteria: {
+                  create: input.assessmentSystem.rubric.criteria.map(criterion => ({
+                  name: criterion.name,
+                  description: criterion.description,
+                  levels: {
                     createMany: {
-                    data: assessmentSystem.markingScheme.gradingScale
+                    data: criterion.levels
                     }
                   }
-                  }
+                  }))
                 }
-                }),
-                ...(assessmentSystem.rubric && {
-                rubrics: {
-                  deleteMany: {},
-                  create: {
-                  name: assessmentSystem.rubric.name,
-                  description: assessmentSystem.rubric.description,
-                  criteria: {
-                    create: assessmentSystem.rubric.criteria.map(criterion => ({
-                    name: criterion.name,
-                    description: criterion.description,
-                    levels: {
-                      createMany: {
-                      data: criterion.levels
-                      }
-                    }
-                    }))
-                  }
-                  }
-                }
-                })
+                }]
+              } : undefined
               }
-              }
-            }
-            })
+            } : undefined
+
+
           },
           include: includeConfig
         });
@@ -575,6 +537,7 @@ export const programRouter = createTRPCRouter({
         });
       }
     }),
+
 
   delete: protectedProcedure
     .input(z.string())
