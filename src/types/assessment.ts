@@ -1,3 +1,29 @@
+export enum TermSystemType {
+	SEMESTER = 'SEMESTER',
+	TERM = 'TERM',
+	QUARTER = 'QUARTER'
+}
+
+export interface TermAssessmentPeriod {
+	name: string;
+	startDate: Date;
+	endDate: Date;
+	weight: number;
+}
+
+export interface AcademicTerm {
+	name: string;
+	startDate: Date;
+	endDate: Date;
+	type: TermSystemType;
+	assessmentPeriods: TermAssessmentPeriod[];
+}
+
+export interface TermSystem {
+	type: 'semesterBased' | 'termBased';
+	terms: AcademicTerm[];
+}
+
 export interface CGPAGradePoint {
 	grade: string;
 	points: number;
@@ -18,6 +44,7 @@ export interface AssessmentSystem {
 	type: AssessmentSystemType;
 	programId: string;
 	cgpaConfig?: CGPAConfig;
+	termSystem?: TermSystem;
 }
 
 export enum AssessmentSystemType {

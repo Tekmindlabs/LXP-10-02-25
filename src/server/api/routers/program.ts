@@ -37,6 +37,15 @@ const includeConfig = {
         }
       }
     }
+  },
+  termStructures: {
+    include: {
+      academicTerms: {
+        include: {
+          assessmentPeriods: true
+        }
+      }
+    }
   }
 };
 
@@ -185,8 +194,23 @@ export const programRouter = createTRPCRouter({
         calendarId: z.string(),
         coordinatorId: z.string().optional(),
         status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).default("ACTIVE"),
+        termSystem: z.object({
+          type: z.enum(['semesterBased', 'termBased']),
+          terms: z.array(z.object({
+          name: z.string(),
+          startDate: z.date(),
+          endDate: z.date(),
+          type: z.enum(['SEMESTER', 'TERM', 'QUARTER']),
+          assessmentPeriods: z.array(z.object({
+            name: z.string(),
+            startDate: z.date(),
+            endDate: z.date(),
+            weight: z.number()
+          }))
+          }))
+        }).optional(),
         assessmentSystem: z.object({
-          type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID"]),
+          type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID", "CGPA"]),
           markingScheme: z.object({
             maxMarks: z.number().min(0),
             passingMarks: z.number().min(0),
@@ -253,7 +277,28 @@ export const programRouter = createTRPCRouter({
               connect: { id: input.coordinatorId },
             }
             : undefined,
-          status: input.status,
+            status: input.status,
+            termSystem: input.termSystem?.type || 'SEMESTER',
+            termStructures: input.termSystem ? {
+            create: input.termSystem.terms.map((term, index) => ({
+              name: term.name,
+              startDate: term.startDate,
+              endDate: term.endDate,
+              order: index + 1,
+              weight: 1.0,
+              status: 'ACTIVE',
+              academicTerms: {
+              create: {
+                name: term.name,
+                status: 'ACTIVE',
+                assessmentWeightage: 100,
+                assessmentPeriods: {
+                create: term.assessmentPeriods
+                }
+              }
+              }
+            }))
+            } : undefined,
             ...(input.assessmentSystem && {
             assessmentSystem: {
               create: {
@@ -314,14 +359,29 @@ export const programRouter = createTRPCRouter({
   update: protectedProcedure
     .input(
       z.object({
-      id: z.string(),
-      name: z.string().optional(),
-      description: z.string().optional(),
-      calendarId: z.string().optional(),
-      coordinatorId: z.string().optional(),
-      status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).optional(),
-      assessmentSystem: z.object({
-        type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID"]),
+        id: z.string(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        calendarId: z.string().optional(),
+        coordinatorId: z.string().optional(),
+        status: z.enum(["ACTIVE", "INACTIVE", "ARCHIVED"]).optional(),
+        termSystem: z.object({
+        type: z.enum(['semesterBased', 'termBased']),
+        terms: z.array(z.object({
+          name: z.string(),
+          startDate: z.date(),
+          endDate: z.date(),
+          type: z.enum(['SEMESTER', 'TERM', 'QUARTER']),
+          assessmentPeriods: z.array(z.object({
+          name: z.string(),
+          startDate: z.date(),
+          endDate: z.date(),
+          weight: z.number()
+          }))
+        }))
+        }).optional(),
+        assessmentSystem: z.object({
+        type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID", "CGPA"]),
         markingScheme: z.object({
         maxMarks: z.number().min(0),
         passingMarks: z.number().min(0),
@@ -389,14 +449,36 @@ export const programRouter = createTRPCRouter({
           }
         }
 
-        const { id, calendarId, coordinatorId, assessmentSystem, ...data } = input;
+        const { id, calendarId, coordinatorId, assessmentSystem, termSystem, ...data } = input;
         
         const updatedProgram = await ctx.prisma.program.update({
           where: { id },
           data: {
-          ...data,
-          calendar: calendarId ? { connect: { id: calendarId } } : undefined,
-          coordinator: coordinatorId ? { connect: { id: coordinatorId } } : undefined,
+            ...data,
+            calendar: calendarId ? { connect: { id: calendarId } } : undefined,
+            coordinator: coordinatorId ? { connect: { id: coordinatorId } } : undefined,
+            termSystem: termSystem?.type || undefined,
+            termStructures: termSystem ? {
+            deleteMany: {},
+            create: termSystem.terms.map((term, index) => ({
+              name: term.name,
+              startDate: term.startDate,
+              endDate: term.endDate,
+              order: index + 1,
+              weight: 1.0,
+              status: 'ACTIVE',
+              academicTerms: {
+              create: {
+                name: term.name,
+                status: 'ACTIVE',
+                assessmentWeightage: 100,
+                assessmentPeriods: {
+                create: term.assessmentPeriods
+                }
+              }
+              }
+            }))
+            } : undefined,
             ...(assessmentSystem && {
             assessmentSystem: {
               upsert: {

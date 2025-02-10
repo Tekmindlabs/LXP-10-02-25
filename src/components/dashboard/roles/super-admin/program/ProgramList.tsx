@@ -22,6 +22,12 @@ interface ProgramListProps {
 			markingSchemes?: any[];
 			rubrics?: any[];
 		} | null;
+		termStructures?: Array<{
+			name: string;
+			type: 'semesterBased' | 'termBased';
+			startDate: Date;
+			endDate: Date;
+		}>;
 	}>;
 	onSelect: (id: string) => void;
 	onEdit: (id: string) => void;
@@ -133,6 +139,19 @@ export const ProgramList = ({
 										<div className="pl-4">
 											<p>Rubric Name: {program.assessmentSystem.rubrics[0].name}</p>
 											<p>Criteria Count: {program.assessmentSystem.rubrics[0].criteria.length}</p>
+										</div>
+									)}
+
+									{program.assessmentSystem.type === AssessmentSystemType.CGPA && program.termStructures && (
+										<div className="mt-2">
+											<p className="font-medium">Term System: {program.termStructures[0].type === 'semesterBased' ? 'Semester Based' : 'Term Based'}</p>
+											<div className="grid gap-1 mt-1">
+												{program.termStructures.map((termStructure, index) => (
+													<div key={index} className="text-sm">
+														{termStructure.name}: {new Date(termStructure.startDate).toLocaleDateString()} - {new Date(termStructure.endDate).toLocaleDateString()}
+													</div>
+												))}
+											</div>
 										</div>
 									)}
 								</div>

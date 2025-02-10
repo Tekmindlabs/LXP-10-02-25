@@ -87,6 +87,26 @@ export const ProgramView = ({ programId, onEdit }: ProgramViewProps) => {
 										: 'Not configured'}
 								</dd>
 							</div>
+							{program.assessmentSystem?.type === AssessmentSystemType.CGPA && program.termStructures && (
+								<>
+									<div className="mt-4">
+										<dt className="font-medium">Term System</dt>
+										<dd>{program.termStructures[0].type === 'semesterBased' ? 'Semester Based' : 'Term Based'}</dd>
+									</div>
+									<div className="mt-2">
+										<dt className="font-medium">Terms</dt>
+										<dd>
+											<ul>
+												{program.termStructures.map((termStructure) => (
+													<li key={termStructure.id}>
+														{termStructure.name}: {new Date(termStructure.startDate).toLocaleDateString()} - {new Date(termStructure.endDate).toLocaleDateString()}
+													</li>
+												))}
+											</ul>
+										</dd>
+									</div>
+								</>
+							)}
 						</dl>
 					</CardContent>
 				</Card>

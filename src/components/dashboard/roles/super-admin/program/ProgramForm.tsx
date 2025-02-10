@@ -16,6 +16,23 @@ import { toast } from "@/hooks/use-toast";
 import type { TRPCClientErrorLike } from "@trpc/client";
 import { AssessmentSystemType } from "@/types/assessment";
 
+type TermType = 'SEMESTER' | 'TERM';
+const termConfigs = {
+	semesterBased: {
+		terms: [
+			{ name: 'Semester 1' },
+			{ name: 'Semester 2' }
+		]
+	},
+	termBased: {
+		terms: [
+			{ name: 'Term 1' },
+			{ name: 'Term 2' },
+			{ name: 'Term 3' }
+		]
+	}
+};
+
 
 interface ProgramFormData {
 	name: string;
@@ -23,6 +40,21 @@ interface ProgramFormData {
 	calendarId: string;
 	coordinatorId?: string;
 	status: Status;
+	termSystem?: {
+		type: 'semesterBased' | 'termBased';
+		terms: Array<{
+			name: string;
+			startDate: Date;
+			endDate: Date;
+			type: TermType;
+			assessmentPeriods: Array<{
+				name: string;
+				startDate: Date;
+				endDate: Date;
+				weight: number;
+			}>;
+		}>;
+	};
 	assessmentSystem: {
 		type: AssessmentSystemType;
 		markingScheme?: {
@@ -252,6 +284,29 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 					toast({
 						title: "Error",
 						description: "Invalid grade points configuration",
+						variant: "destructive",
+					});
+					return false;
+				}
+			}
+		}
+
+		if (formData.assessmentSystem.type === AssessmentSystemType.CGPA) {
+			if (!formData.termSystem) {
+				toast({
+					title: "Error",
+					description: "Term system configuration is required for CGPA",
+					variant: "destructive",
+				});
+				return false;
+			}
+
+			// Validate term dates
+			for (const term of formData.termSystem.terms) {
+				if (term.startDate >= term.endDate) {
+					toast({
+						title: "Error",
+						description: `Invalid date range for ${term.name}`,
 						variant: "destructive",
 					});
 					return false;
@@ -541,6 +596,95 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 									))}
 								</div>
 							</div>
+
+							<div className="space-y-4 border p-4 rounded-lg">
+								<h3 className="text-lg font-semibold">Term System</h3>
+								
+								<div>
+									<Label>System Type</Label>
+									<Select
+										value={formData.termSystem?.type || "semesterBased"}
+										onValueChange={(value: 'semesterBased' | 'termBased') => {
+											const config = termConfigs[value];
+											setFormData({
+												...formData,
+												termSystem: {
+													type: value,
+													terms: config.terms.map(term => ({
+														name: term.name,
+														startDate: new Date(),
+														endDate: new Date(),
+														type: value === 'semesterBased' ? 'SEMESTER' : 'TERM',
+														assessmentPeriods: []
+													}))
+												}
+											});
+										}}
+									>
+										<SelectTrigger>
+											<SelectValue placeholder="Select term system" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="semesterBased">Semester Based</SelectItem>
+											<SelectItem value="termBased">Term Based</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+
+								{formData.termSystem?.terms.map((term, index) => (
+									<div key={index} className="space-y-2 border p-2 rounded">
+										<div className="flex justify-between items-center">
+											<h4 className="font-medium">{term.name}</h4>
+										</div>
+										
+										<div className="grid grid-cols-2 gap-2">
+											<div>
+												<Label>Start Date</Label>
+												<Input
+													type="date"
+													value={term.startDate.toISOString().split('T')[0]}
+													onChange={(e) => {
+														const newTerms = [...formData.termSystem!.terms];
+														newTerms[index] = {
+															...term,
+															startDate: new Date(e.target.value)
+														};
+														setFormData({
+															...formData,
+															termSystem: {
+																...formData.termSystem!,
+																terms: newTerms
+															}
+														});
+													}}
+												/>
+											</div>
+											<div>
+												<Label>End Date</Label>
+												<Input
+													type="date"
+													value={term.endDate.toISOString().split('T')[0]}
+													onChange={(e) => {
+														const newTerms = [...formData.termSystem!.terms];
+														newTerms[index] = {
+															...term,
+															endDate: new Date(e.target.value)
+														};
+														setFormData({
+															...formData,
+															termSystem: {
+																...formData.termSystem!,
+																terms: newTerms
+															}
+														});
+													}}
+												/>
+											</div>
+										</div>
+									</div>
+								))}
+							</div>
+							</>
 						)}
 
 						{formData.assessmentSystem.type === AssessmentSystemType.RUBRIC && (
@@ -641,6 +785,7 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 						)}
 
 						{formData.assessmentSystem.type === AssessmentSystemType.CGPA && (
+							<>
 							<div className="space-y-4">
 								<div>
 									<Label>Grade Points Configuration</Label>
