@@ -81,6 +81,13 @@ const formSchema = z.object({
 		teacherId: z.string(),
 	})),
 	classGroupId: z.string().optional(),
+	newSubjects: z.array(z.object({
+		name: z.string(),
+		code: z.string(),
+		description: z.string().optional(),
+		status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).default(Status.ACTIVE),
+	})).optional(),
+	inheritCalendar: z.boolean().default(true),
 	configuration: z.object({
 		activityMode: z.nativeEnum(ActivityMode),
 		isGraded: z.boolean(),
@@ -125,7 +132,13 @@ interface ActivityResponse {
 	resources: ActivityResource[];
 	class: { name: string } | null;
 	subject: { name: string; id: string };
-	classGroup: { name: string } | null;
+	classGroup: { 
+		name: string;
+		calendar?: {
+			id: string;
+			inheritSettings?: boolean;
+		};
+	} | null;
 	teacherAssignments?: Array<{ teacherId: string; subjectId: string; }>;
 }
 
@@ -151,6 +164,8 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 			subjectIds: [],
 			teacherAssignments: [],
 			classGroupId: undefined,
+			newSubjects: [],
+			inheritCalendar: true,
 			configuration: {
 				activityMode: ActivityMode.IN_CLASS,
 				isGraded: true,
@@ -253,6 +268,8 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 							subjectIds: Array.isArray(activity.subjectId) ? activity.subjectId : [activity.subjectId],
 							teacherAssignments: activity.teacherAssignments || [],
 							classGroupId: activity.classGroupId || undefined,
+							newSubjects: [], // Initialize empty for edit mode
+							inheritCalendar: activity.classGroup?.calendar?.inheritSettings ?? true,
 							configuration: {
 								activityMode: config.activityMode,
 								isGraded: config.isGraded,
@@ -271,7 +288,6 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 						};
 
 						form.reset(formData);
-
 					}
 				})
 				.catch((error) => {
@@ -292,14 +308,29 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 
 	const onSubmit = async (data: FormData) => {
 		try {
+			// Create new subjects first if any
+			const createdSubjectIds = data.newSubjects?.length ? 
+				await Promise.all(data.newSubjects.map(async (subject) => {
+					const result = await utils.subject.create.mutate({
+						...subject,
+						classGroupIds: data.classGroupId ? [data.classGroupId] : []
+					});
+					return result.id;
+				})) : [];
+
 			const formData = {
 				...data,
 				classId: data.classId || "",
 				subjectId: data.subjectIds[0], // Primary subject
+				subjectIds: [...data.subjectIds, ...createdSubjectIds],
 				configuration: {
 					...data.configuration,
 					availabilityDate: new Date(data.configuration.availabilityDate),
 					deadline: new Date(data.configuration.deadline)
+				},
+				calendar: {
+					inheritSettings: data.inheritCalendar,
+					id: data.classGroupId || ""
 				}
 			};
 
@@ -381,6 +412,62 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 							{/* Class and Subject Selection */}
 							<div className="space-y-4">
 								<h3 className="text-lg font-medium">Class and Subject</h3>
+
+								{/* Class Group and Calendar Settings */}
+								<div className="space-y-4">
+									<h3 className="text-lg font-medium">Class Group and Subjects</h3>
+									<div className="grid grid-cols-2 gap-4">
+										<FormField
+											control={form.control}
+											name="classGroupId"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>Class Group</FormLabel>
+													<Select onValueChange={field.onChange} value={field.value}>
+														<FormControl>
+															<SelectTrigger>
+																<SelectValue placeholder="Select class group" />
+															</SelectTrigger>
+														</FormControl>
+														<SelectContent>
+															{classGroups?.map((group) => (
+																<SelectItem key={group.id} value={group.id}>
+																	{group.name}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+
+										<FormField
+											control={form.control}
+											name="inheritCalendar"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>Inherit Calendar</FormLabel>
+													<Select 
+														onValueChange={(value) => field.onChange(value === 'true')} 
+														value={field.value ? 'true' : 'false'}
+													>
+														<FormControl>
+															<SelectTrigger>
+																<SelectValue placeholder="Select calendar inheritance" />
+															</SelectTrigger>
+														</FormControl>
+														<SelectContent>
+															<SelectItem value="true">Yes</SelectItem>
+															<SelectItem value="false">No</SelectItem>
+														</SelectContent>
+													</Select>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+									</div>
+								</div>
 								<div className="grid grid-cols-2 gap-4">
 									<FormField
 										control={form.control}
@@ -430,6 +517,80 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 											</FormItem>
 										)}
 									/>
+								</div>
+
+								{/* New Subjects Section */}
+								<div className="mt-4">
+									<h3 className="text-lg font-medium">New Subjects</h3>
+									<div className="space-y-4">
+										{form.watch('newSubjects')?.map((_, index) => (
+											<div key={index} className="grid grid-cols-2 gap-4 p-4 border rounded">
+												<FormField
+													control={form.control}
+													name={`newSubjects.${index}.name`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Subject Name</FormLabel>
+															<FormControl>
+																<Input {...field} />
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<FormField
+													control={form.control}
+													name={`newSubjects.${index}.code`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Subject Code</FormLabel>
+															<FormControl>
+																<Input {...field} />
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<FormField
+													control={form.control}
+													name={`newSubjects.${index}.description`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Description</FormLabel>
+															<FormControl>
+																<Textarea {...field} />
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<Button
+													type="button"
+													variant="destructive"
+													onClick={() => {
+														const subjects = form.getValues('newSubjects');
+														subjects.splice(index, 1);
+														form.setValue('newSubjects', subjects);
+													}}
+												>
+													Remove Subject
+												</Button>
+											</div>
+										))}
+										<Button
+											type="button"
+											variant="outline"
+											onClick={() => {
+												const subjects = form.getValues('newSubjects') || [];
+												form.setValue('newSubjects', [
+													...subjects,
+													{ name: '', code: '', description: '', status: Status.ACTIVE }
+												]);
+											}}
+										>
+											Add New Subject
+										</Button>
+									</div>
 								</div>
 
 								{/* Teacher Assignments */}

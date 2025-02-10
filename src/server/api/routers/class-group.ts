@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { Status } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
+import { SubjectSyncService } from '@/server/services/SubjectSyncService';
 
 const calendarSchema = z.object({
 	id: z.string(),
@@ -28,18 +29,52 @@ export const classGroupRouter = createTRPCRouter({
 			status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).default(Status.ACTIVE),
 			calendar: calendarSchema,
 			subjectIds: z.array(z.string()).optional(),
+			subjects: z.array(z.object({
+				name: z.string(),
+				code: z.string(),
+				description: z.string().optional(),
+				status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).default(Status.ACTIVE),
+			})).optional(),
 		}))
 		.mutation(async ({ ctx, input }) => {
-			const { calendar, subjectIds, ...classGroupData } = input;
+			const { calendar, subjectIds, subjects, ...classGroupData } = input;
+			const subjectSyncService = new SubjectSyncService(ctx.prisma);
 
 			return ctx.prisma.$transaction(async (tx) => {
+				// Get program calendar for inheritance
+				const program = await tx.program.findUnique({
+					where: { id: input.programId },
+					include: { calendar: true },
+				});
+
+				if (!program) {
+					throw new TRPCError({
+						code: "NOT_FOUND",
+						message: "Program not found",
+					});
+				}
+
+				// Create new subjects if provided
+				const createdSubjects = subjects
+					? await Promise.all(subjects.map(subject =>
+						tx.subject.create({
+							data: subject,
+						})
+					))
+					: [];
+
+				const allSubjectIds = [
+					...(subjectIds || []),
+					...createdSubjects.map(s => s.id)
+				];
+
 				const classGroup = await tx.classGroup.create({
 					data: {
 						...classGroupData,
-						calendarId: calendar.id,
-						...(subjectIds && {
+						calendarId: calendar.inheritSettings ? program.calendar.id : calendar.id,
+						...(allSubjectIds.length > 0 && {
 							subjects: {
-								connect: subjectIds.map(id => ({ id })),
+								connect: allSubjectIds.map(id => ({ id })),
 							},
 						}),
 					},
@@ -51,20 +86,24 @@ export const classGroupRouter = createTRPCRouter({
 				});
 
 				// Log subject changes if any subjects were added
-				if (subjectIds?.length) {
+				if (allSubjectIds.length > 0) {
 					await tx.subjectChangeLog.create({
 						data: {
 							classGroupId: classGroup.id,
 							changes: JSON.stringify({
 								type: 'INITIAL_SUBJECTS_ADDED',
-								subjectIds,
+								subjectIds: allSubjectIds,
 								timestamp: new Date(),
 							} as SubjectChange),
 						},
 					});
 				}
 
+				// Sync subjects with classes
+				await subjectSyncService.syncClassSubjects(classGroup.id);
+
 				return classGroup;
+
 			});
 		}),
 
@@ -77,9 +116,16 @@ export const classGroupRouter = createTRPCRouter({
 			status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).optional(),
 			calendar: calendarSchema.optional(),
 			subjectIds: z.array(z.string()).optional(),
+			subjects: z.array(z.object({
+				name: z.string(),
+				code: z.string(),
+				description: z.string().optional(),
+				status: z.enum([Status.ACTIVE, Status.INACTIVE, Status.ARCHIVED]).default(Status.ACTIVE),
+			})).optional(),
 		}))
 		.mutation(async ({ ctx, input }) => {
-			const { id, calendar, subjectIds, ...data } = input;
+			const { id, calendar, subjectIds, subjects, ...data } = input;
+			const subjectSyncService = new SubjectSyncService(ctx.prisma);
 
 			return ctx.prisma.$transaction(async (tx) => {
 				// Get current subjects for comparison
@@ -90,14 +136,28 @@ export const classGroupRouter = createTRPCRouter({
 
 				const currentSubjectIds = currentClassGroup?.subjects.map(s => s.id) || [];
 
+				// Create new subjects if provided
+				const createdSubjects = subjects
+					? await Promise.all(subjects.map(subject =>
+						tx.subject.create({
+							data: subject,
+						})
+					))
+					: [];
+
+				const allSubjectIds = [
+					...(subjectIds || []),
+					...createdSubjects.map(s => s.id)
+				];
+
 				const classGroup = await tx.classGroup.update({
 					where: { id },
 					data: {
 						...data,
 						...(calendar && { calendarId: calendar.id }),
-						...(subjectIds && {
+						...(allSubjectIds.length > 0 && {
 							subjects: {
-								set: subjectIds.map(id => ({ id })),
+								set: allSubjectIds.map(id => ({ id })),
 							},
 						}),
 					},
@@ -109,9 +169,9 @@ export const classGroupRouter = createTRPCRouter({
 				});
 
 				// Log subject changes if subjects were modified
-				if (subjectIds && JSON.stringify(currentSubjectIds) !== JSON.stringify(subjectIds)) {
-					const added = subjectIds.filter(id => !currentSubjectIds.includes(id));
-					const removed = currentSubjectIds.filter(id => !subjectIds.includes(id));
+				if (allSubjectIds.length > 0 && JSON.stringify(currentSubjectIds) !== JSON.stringify(allSubjectIds)) {
+					const added = allSubjectIds.filter(id => !currentSubjectIds.includes(id));
+					const removed = currentSubjectIds.filter(id => !allSubjectIds.includes(id));
 
 					await tx.subjectChangeLog.create({
 						data: {
@@ -698,8 +758,9 @@ export const classGroupRouter = createTRPCRouter({
 			// Calculate average scores by date
 			const performanceData = activities.map(activity => ({
 				date: activity.createdAt.toISOString().split('T')[0],
-				averageScore: activity.submissions.reduce((acc, sub) => acc + (sub.obtainedMarks / sub.totalMarks * 100), 0) / 
-							 (activity.submissions.length || 1)
+				averageScore: activity.submissions.reduce((acc, sub) => 
+					acc + (((sub.obtainedMarks ?? 0) / (sub.totalMarks ?? 1)) * 100), 0) / 
+					(activity.submissions.length || 1)
 			}));
 
 			// Calculate subject-wise performance
@@ -714,7 +775,7 @@ export const classGroupRouter = createTRPCRouter({
 				}
 				
 				const avgScore = activity.submissions.reduce((sum, sub) => 
-					sum + (sub.obtainedMarks / sub.totalMarks * 100), 0) / 
+					sum + (((sub.obtainedMarks ?? 0) / (sub.totalMarks ?? 1)) * 100), 0) / 
 					(activity.submissions.length || 1);
 				
 				acc[subjectName].totalScore += avgScore;
