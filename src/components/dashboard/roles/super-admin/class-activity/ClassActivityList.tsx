@@ -142,6 +142,7 @@ export default function ClassActivityList({ onEdit }: Props) {
 							<TableHead>Type</TableHead>
 							<TableHead>Deadline</TableHead>
 							<TableHead>Class/Group</TableHead>
+							<TableHead>Subjects</TableHead>
 							<TableHead>Submissions</TableHead>
 							<TableHead>Actions</TableHead>
 						</TableRow>
@@ -158,6 +159,18 @@ export default function ClassActivityList({ onEdit }: Props) {
 								</TableCell>
 								<TableCell>
 									{activity.class?.name || activity.classGroup?.name || "N/A"}
+								</TableCell>
+								<TableCell>
+									<div className="flex flex-wrap gap-1">
+										{activity.subjects?.map(subject => (
+											<span key={subject.id} className="px-2 py-1 text-xs bg-secondary rounded-full">
+												{subject.name}
+											</span>
+										))}
+										{!activity.subjects?.length && (
+											<span className="text-muted-foreground">{activity.subject.name}</span>
+										)}
+									</div>
 								</TableCell>
 								<TableCell>
 									<Button
@@ -209,6 +222,17 @@ export default function ClassActivityList({ onEdit }: Props) {
 							<div>
 								<h3 className="font-medium">{selectedActivityDetails?.title}</h3>
 								<p className="text-sm text-gray-500">{selectedActivityDetails?.description}</p>
+								<div className="mt-2 flex flex-wrap gap-2">
+									<span className="text-sm font-medium">Subjects:</span>
+									{selectedActivityDetails?.subjects?.map(subject => (
+										<span key={subject.id} className="px-2 py-1 text-xs bg-secondary rounded-full">
+											{subject.name}
+										</span>
+									))}
+									{!selectedActivityDetails?.subjects?.length && (
+										<span className="text-muted-foreground">{selectedActivityDetails?.subject.name}</span>
+									)}
+								</div>
 							</div>
 							<Table>
 								<TableHeader>

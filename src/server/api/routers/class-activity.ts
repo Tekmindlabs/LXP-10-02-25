@@ -57,12 +57,17 @@ export const classActivityRouter = createTRPCRouter({
 			type: z.nativeEnum(ActivityType),
 			classId: z.string().optional(),
 			subjectId: z.string(),
+			subjectIds: z.array(z.string()).optional(),
 			classGroupId: z.string().optional(),
+			calendar: z.object({
+				inheritSettings: z.boolean(),
+				id: z.string()
+			}).optional(),
 			configuration: configurationSchema,
 			resources: z.array(resourceSchema).optional()
 		}))
 		.mutation(async ({ ctx, input }) => {
-			const { resources, configuration, ...activityData } = input;
+			const { resources, configuration, calendar, subjectIds, ...activityData } = input;
 
 			const configJson = {
 				...configuration,
@@ -81,21 +86,39 @@ export const classActivityRouter = createTRPCRouter({
 				} : undefined
 			}));
 
+			// Handle calendar inheritance
+			let calendarId: string | undefined;
+			if (calendar && activityData.classGroupId) {
+				const classGroup = await ctx.prisma.classGroup.findUnique({
+					where: { id: activityData.classGroupId },
+					include: { program: { include: { calendar: true } } }
+				});
+
+				if (calendar.inheritSettings && classGroup?.program?.calendar) {
+					calendarId = classGroup.program.calendar.id;
+				} else {
+					calendarId = calendar.id;
+				}
+			}
+
 			return ctx.prisma.classActivity.create({
 				data: {
 					...activityData,
 					status: ActivityStatus.PUBLISHED,
 					configuration: configJson as Prisma.JsonObject,
 					resources: resourcesData ? { create: resourcesData } : undefined,
+					...(calendarId && { calendarId }),
+					subjects: {
+						connect: [...(subjectIds || []), input.subjectId].map(id => ({ id }))
+					}
 				},
-
 				include: {
 					class: { select: { name: true } },
 					classGroup: { select: { name: true } },
-					subject: { select: { name: true } }
+					subject: { select: { name: true } },
+					subjects: { select: { id: true, name: true } }
 				}
 			});
-
 		}),
 
 	getAll: protectedProcedure
@@ -168,9 +191,11 @@ export const classActivityRouter = createTRPCRouter({
 								id: true
 							}
 						},
+						subjects: { select: { id: true, name: true } },
 						classGroup: {
 							select: {
-								name: true
+								name: true,
+								calendar: true
 							}
 						},
 						submissions: {
@@ -230,24 +255,50 @@ export const classActivityRouter = createTRPCRouter({
 			type: z.nativeEnum(ActivityType),
 			classId: z.string(),
 			subjectId: z.string(),
-			deadline: z.date().optional(),
-			gradingCriteria: z.string().optional(),
-			configuration: z.object({
-				totalMarks: z.number().min(1),
-				passingMarks: z.number().min(1),
-				activityMode: z.enum(['ONLINE', 'IN_CLASS']),
-				gradingType: z.enum(['AUTOMATIC', 'MANUAL']),
-				isGraded: z.boolean(),
-				timeLimit: z.number().optional(),
-				attempts: z.number().optional(),
-			})
+			subjectIds: z.array(z.string()).optional(),
+			calendar: z.object({
+				inheritSettings: z.boolean(),
+				id: z.string()
+			}).optional(),
+			configuration: configurationSchema,
+			resources: z.array(resourceSchema).optional()
 		}))
 		.mutation(async ({ ctx, input }) => {
-			const { id, ...data } = input;
+			const { id, calendar, subjectIds, resources, ...data } = input;
+
+			// Handle calendar inheritance
+			let calendarId: string | undefined;
+			if (calendar && data.classGroupId) {
+				const classGroup = await ctx.prisma.classGroup.findUnique({
+					where: { id: data.classGroupId },
+					include: { program: { include: { calendar: true } } }
+				});
+
+				if (calendar.inheritSettings && classGroup?.program?.calendar) {
+					calendarId = classGroup.program.calendar.id;
+				} else {
+					calendarId = calendar.id;
+				}
+			}
+
 			return ctx.prisma.classActivity.update({
 				where: { id },
-				data,
+				data: {
+					...data,
+					...(calendarId && { calendarId }),
+					subjects: {
+						set: [...(subjectIds || []), input.subjectId].map(id => ({ id }))
+					},
+					resources: resources ? {
+						deleteMany: {},
+						create: resources
+					} : undefined
+				},
 				include: {
+					class: { select: { name: true } },
+					classGroup: { select: { name: true } },
+					subject: { select: { name: true } },
+					subjects: { select: { id: true, name: true } },
 					resources: true
 				}
 			});

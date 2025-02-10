@@ -29,37 +29,7 @@ import {
 
 type Resource = ActivityResource;
 
-interface Teacher {
-	id: string;
-	name: string | null;
-	email: string | null;
-	phoneNumber: string | null;
-	status: Status;
-	teacherProfile: {
-		teacherType: 'CLASS' | 'SUBJECT';
-		specialization: string | null;
-		availability: string | null;
-		permissions: string[];
-		subjects: Array<{
-			subject: {
-				id: string;
-				name: string;
-			};
-			status: string;
-		}>;
-		classes: Array<{
-			class: {
-				id: string;
-				name: string;
-				classGroup: {
-					name: string;
-				};
-			};
-			status: string;
-			isClassTeacher: boolean;
-		}>;
-	} | null;
-}
+
 
 
 type FormData = z.infer<typeof formSchema>;
@@ -151,7 +121,7 @@ interface Props {
 export default function ClassActivityForm({ activityId, onClose }: Props) {
 
 	const { toast } = useToast();
-	const utils = api.useContext();
+	const utils = api.useUtils();
 	const [isLoading, setIsLoading] = useState(false);
 
 	const form = useForm<FormData>({
@@ -189,8 +159,10 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 		{ classId: form.watch('classId') || '' },
 		{ enabled: !!form.watch('classId') }
 	);
-	
 	const { data: teachers = [], isLoading: teachersLoading } = api.teacher.searchTeachers.useQuery({});
+	const { data: classGroups = [], isLoading: classGroupsLoading } = api.classGroup.list.useQuery();
+
+	const createSubjectMutation = api.subject.create.useMutation();
 
 	useEffect(() => {
 		if (form.watch('classId')) {
@@ -199,7 +171,6 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 			form.setValue('subjectIds', []);
 		}
 	}, [form.watch('classId')]);
-	const { isLoading: classGroupsLoading } = api.classGroup.list.useQuery();
 
 
 
@@ -311,7 +282,7 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 			// Create new subjects first if any
 			const createdSubjectIds = data.newSubjects?.length ? 
 				await Promise.all(data.newSubjects.map(async (subject) => {
-					const result = await utils.subject.create.mutate({
+					const result = await createSubjectMutation.mutateAsync({
 						...subject,
 						classGroupIds: data.classGroupId ? [data.classGroupId] : []
 					});
@@ -430,7 +401,7 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 															</SelectTrigger>
 														</FormControl>
 														<SelectContent>
-															{classGroups?.map((group) => (
+															{classGroups?.map((group: { id: string; name: string }) => (
 																<SelectItem key={group.id} value={group.id}>
 																	{group.name}
 																</SelectItem>
@@ -520,78 +491,80 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 								</div>
 
 								{/* New Subjects Section */}
-								<div className="mt-4">
-									<h3 className="text-lg font-medium">New Subjects</h3>
-									<div className="space-y-4">
-										{form.watch('newSubjects')?.map((_, index) => (
-											<div key={index} className="grid grid-cols-2 gap-4 p-4 border rounded">
-												<FormField
-													control={form.control}
-													name={`newSubjects.${index}.name`}
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>Subject Name</FormLabel>
-															<FormControl>
-																<Input {...field} />
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
-												<FormField
-													control={form.control}
-													name={`newSubjects.${index}.code`}
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>Subject Code</FormLabel>
-															<FormControl>
-																<Input {...field} />
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
-												<FormField
-													control={form.control}
-													name={`newSubjects.${index}.description`}
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>Description</FormLabel>
-															<FormControl>
-																<Textarea {...field} />
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
-												<Button
-													type="button"
-													variant="destructive"
-													onClick={() => {
-														const subjects = form.getValues('newSubjects');
-														subjects.splice(index, 1);
-														form.setValue('newSubjects', subjects);
-													}}
-												>
-													Remove Subject
-												</Button>
-											</div>
-										))}
-										<Button
-											type="button"
-											variant="outline"
-											onClick={() => {
-												const subjects = form.getValues('newSubjects') || [];
-												form.setValue('newSubjects', [
-													...subjects,
-													{ name: '', code: '', description: '', status: Status.ACTIVE }
-												]);
-											}}
-										>
-											Add New Subject
-										</Button>
+								{form.watch('classGroupId') && (
+									<div className="mt-4">
+										<h3 className="text-lg font-medium">New Subjects</h3>
+										<div className="space-y-4">
+											{form.watch('newSubjects')?.map((_, index) => (
+												<div key={index} className="grid grid-cols-2 gap-4 p-4 border rounded">
+													<FormField
+														control={form.control}
+														name={`newSubjects.${index}.name`}
+														render={({ field }) => (
+															<FormItem>
+																<FormLabel>Subject Name</FormLabel>
+																<FormControl>
+																	<Input {...field} />
+																</FormControl>
+																<FormMessage />
+															</FormItem>
+														)}
+													/>
+													<FormField
+														control={form.control}
+														name={`newSubjects.${index}.code`}
+														render={({ field }) => (
+															<FormItem>
+																<FormLabel>Subject Code</FormLabel>
+																<FormControl>
+																	<Input {...field} />
+																</FormControl>
+																<FormMessage />
+															</FormItem>
+														)}
+													/>
+													<FormField
+														control={form.control}
+														name={`newSubjects.${index}.description`}
+														render={({ field }) => (
+															<FormItem>
+																<FormLabel>Description</FormLabel>
+																<FormControl>
+																	<Textarea {...field} />
+																</FormControl>
+																<FormMessage />
+															</FormItem>
+														)}
+													/>
+													<Button
+														type="button"
+														variant="destructive"
+														onClick={() => {
+															const currentSubjects = form.getValues('newSubjects') || [];
+															currentSubjects.splice(index, 1);
+															form.setValue('newSubjects', currentSubjects);
+														}}
+													>
+														Remove Subject
+													</Button>
+												</div>
+											))}
+											<Button
+												type="button"
+												variant="outline"
+												onClick={() => {
+													const currentSubjects = form.getValues('newSubjects') || [];
+													form.setValue('newSubjects', [
+														...currentSubjects,
+														{ name: '', code: '', description: '', status: Status.ACTIVE }
+													]);
+												}}
+											>
+												Add New Subject
+											</Button>
+										</div>
 									</div>
-								</div>
+								)}
 
 								{/* Teacher Assignments */}
 								{form.watch('subjectIds')?.length > 0 && (
@@ -605,7 +578,7 @@ export default function ClassActivityForm({ activityId, onClose }: Props) {
 													render={({ field }) => (
 														<FormItem>
 															<FormLabel>
-																Teacher for {subjects?.find(s => s.id === subjectId)?.name}
+																Teacher for {subjects?.find(s => s.id === subjectId)?.name || 'Subject'}
 															</FormLabel>
 															<Select 
 																onValueChange={(value) => {

@@ -274,6 +274,7 @@ model Subject {
   periods            Period[]
   teacherAssignments TeacherAssignment[]
   activities         ClassActivity[]
+  activitySubjects   ClassActivity[]     @relation("ActivitySubjects")
   progress           ProgressTracking[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -461,6 +462,7 @@ model ClassActivity {
   // Relations
   class       Class?               @relation(fields: [classId], references: [id])
   subject     Subject              @relation(fields: [subjectId], references: [id])
+  subjects    Subject[]            @relation("ActivitySubjects")
   classGroup  ClassGroup?          @relation(fields: [classGroupId], references: [id])
   submissions ActivitySubmission[]
 

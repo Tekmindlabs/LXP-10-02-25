@@ -105,6 +105,11 @@ export interface ActivitySubmission {
 	gradedAt?: Date;
 }
 
+export interface ActivityCalendar {
+	id: string;
+	inheritSettings: boolean;
+}
+
 export interface ClassActivity {
 	id: string;
 	title: string;
@@ -113,7 +118,9 @@ export interface ClassActivity {
 	status: ActivityStatus;
 	classId?: string;
 	subjectId: string;
+	subjects?: Array<{ id: string; name: string }>;
 	classGroupId?: string;
+	calendarId?: string;
 	deadline?: Date;
 	configuration: ActivityConfiguration;
 	resources?: ActivityResource[];
@@ -122,7 +129,13 @@ export interface ClassActivity {
 	updatedAt: Date;
 	class?: { name: string };
 	subject: { name: string };
-	classGroup?: { name: string };
+	classGroup?: { 
+		name: string;
+		calendar?: {
+			id: string;
+			inheritSettings?: boolean;
+		};
+	};
 }
 
 export type FormData = {
@@ -131,7 +144,9 @@ export type FormData = {
 	type: ActivityType;
 	classId?: string;
 	subjectId: string;
+	subjectIds?: string[];
 	classGroupId?: string;
+	calendar?: ActivityCalendar;
 	configuration: ActivityConfiguration;
 	resources?: ActivityResource[];
 };
