@@ -55,6 +55,23 @@ interface ProgramFormProps {
 	onSuccess: () => void;
 }
 
+const defaultRubric = {
+	name: 'Default Rubric',
+	description: '',
+	criteria: [
+		{
+			name: 'Quality',
+			description: '',
+			levels: [
+				{ name: 'Excellent', points: 4, description: '' },
+				{ name: 'Good', points: 3, description: '' },
+				{ name: 'Fair', points: 2, description: '' },
+				{ name: 'Poor', points: 1, description: '' }
+			]
+		}
+	]
+};
+
 export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: ProgramFormProps) => {
 	const [formData, setFormData] = useState<ProgramFormData>(() => ({
 		name: selectedProgram?.name || "",
@@ -134,19 +151,32 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 			calendarId: "NO_SELECTION",
 			coordinatorId: "NO_SELECTION",
 			status: Status.ACTIVE,
+			assessmentSystem: {
+				type: AssessmentSystemType.MARKING_SCHEME,
+				markingScheme: {
+					maxMarks: 100,
+					passingMarks: 40,
+					gradingScale: [
+						{ grade: 'A', minPercentage: 80, maxPercentage: 100 },
+						{ grade: 'B', minPercentage: 70, maxPercentage: 79 },
+						{ grade: 'C', minPercentage: 60, maxPercentage: 69 },
+						{ grade: 'D', minPercentage: 50, maxPercentage: 59 },
+						{ grade: 'E', minPercentage: 40, maxPercentage: 49 },
+						{ grade: 'F', minPercentage: 0, maxPercentage: 39 }
+					]
+				}
+			}
 		});
 	};
 
-	const handleSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
-		
+	const validateForm = () => {
 		if (!formData.name.trim()) {
 			toast({
 				title: "Error",
 				description: "Program name is required",
 				variant: "destructive",
 			});
-			return;
+			return false;
 		}
 
 		if (formData.calendarId === "NO_SELECTION") {
@@ -155,6 +185,63 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 				description: "Calendar selection is required",
 				variant: "destructive",
 			});
+			return false;
+		}
+
+		if (formData.assessmentSystem.type === AssessmentSystemType.MARKING_SCHEME) {
+			const { markingScheme } = formData.assessmentSystem;
+			if (!markingScheme || markingScheme.maxMarks <= 0 || markingScheme.passingMarks <= 0) {
+				toast({
+					title: "Error",
+					description: "Invalid marking scheme configuration",
+					variant: "destructive",
+				});
+				return false;
+			}
+		} else if (formData.assessmentSystem.type === AssessmentSystemType.RUBRIC) {
+			const { rubric } = formData.assessmentSystem;
+			if (!rubric || !rubric.name || !rubric.criteria.length) {
+				toast({
+					title: "Error",
+					description: "Invalid rubric configuration",
+					variant: "destructive",
+				});
+				return false;
+			}
+		}
+
+		return true;
+	};
+
+	const handleAssessmentTypeChange = (type: AssessmentSystemType) => {
+		setFormData({
+			...formData,
+			assessmentSystem: {
+				type,
+				...(type === AssessmentSystemType.MARKING_SCHEME ? {
+					markingScheme: {
+						maxMarks: 100,
+						passingMarks: 40,
+						gradingScale: [
+							{ grade: 'A', minPercentage: 80, maxPercentage: 100 },
+							{ grade: 'B', minPercentage: 70, maxPercentage: 79 },
+							{ grade: 'C', minPercentage: 60, maxPercentage: 69 },
+							{ grade: 'D', minPercentage: 50, maxPercentage: 59 },
+							{ grade: 'E', minPercentage: 40, maxPercentage: 49 },
+							{ grade: 'F', minPercentage: 0, maxPercentage: 39 }
+						]
+					}
+				} : {
+					rubric: defaultRubric
+				})
+			}
+		});
+	};
+
+	const handleSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		
+		if (!validateForm()) {
 			return;
 		}
 
@@ -172,6 +259,7 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 			createMutation.mutate(submissionData);
 		}
 	};
+
 
 	if (calendarsError) {
 		return (
@@ -283,13 +371,8 @@ export const ProgramForm = ({ selectedProgram, coordinators, onSuccess }: Progra
 							<Label>Assessment Type</Label>
 							<Select
 								value={formData.assessmentSystem.type}
-								onValueChange={(value) => setFormData({
-									...formData,
-									assessmentSystem: {
-										...formData.assessmentSystem,
-										type: value as AssessmentSystemType
-									}
-								})}
+								onValueChange={handleAssessmentTypeChange}
+
 							>
 								<SelectTrigger className="w-full">
 									<SelectValue placeholder="Select Assessment Type" />

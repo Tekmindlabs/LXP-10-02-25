@@ -3,23 +3,34 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Program, Status } from "@prisma/client";
 import { AssessmentSystemType } from "@/types/assessment";
 import { api } from "@/utils/api";
 import { ProgramList } from "./ProgramList";
 import { ProgramForm } from "./ProgramForm";
+import { ProgramView } from "./ProgramView";
 
-interface ProgramWithDetails extends Program {
+interface ProgramWithDetails {
+	id: string;
+	name: string | null;
+	description?: string | null;
+	status: Status;
+	calendar?: {
+		id: string;
+		name: string;
+	} | null;
 	coordinator?: {
+		id: string;
 		user: {
 			name: string | null;
 		};
 	} | null;
-	classGroups: any[]; // You can make this more specific based on your needs
+	classGroups: any[];
 	assessmentSystem?: {
 		type: AssessmentSystemType;
-		markingScheme?: {
+		markingSchemes?: Array<{
 			maxMarks: number;
 			passingMarks: number;
 			gradingScale: Array<{
@@ -27,8 +38,8 @@ interface ProgramWithDetails extends Program {
 				minPercentage: number;
 				maxPercentage: number;
 			}>;
-		};
-		rubric?: {
+		}>;
+		rubrics?: Array<{
 			name: string;
 			description?: string;
 			criteria: Array<{
@@ -40,8 +51,8 @@ interface ProgramWithDetails extends Program {
 					description?: string;
 				}>;
 			}>;
-		};
-	};
+		}>;
+	} | null;
 }
 
 interface Filters {
@@ -56,8 +67,16 @@ interface Filters {
 
 
 export const ProgramManagement = () => {
-    const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
-const [filters, setFilters] = useState<Filters>({});
+	const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
+	const [mode, setMode] = useState<'view' | 'edit' | 'create'>('view');
+	const [filters, setFilters] = useState<Filters>({
+	search: '',
+	status: undefined,
+	calendarId: undefined,
+	assessmentType: undefined,
+	sortBy: undefined,
+	sortOrder: undefined
+});
 
 const utils = api.useContext();
 
@@ -87,11 +106,22 @@ const associateCalendar = api.program.associateCalendar.useMutation({
     return (
         <div className="space-y-4">
             <Card>
-                <CardHeader>
-                    <CardTitle>Program Management</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="mb-6 space-y-4">
+<CardHeader>
+	<div className="flex justify-between items-center">
+		<CardTitle>Program Management</CardTitle>
+		<Button 
+			onClick={() => {
+				setSelectedProgramId(null);
+				setMode('create');
+			}}
+			variant="default"
+		>
+			Create Program
+		</Button>
+	</div>
+</CardHeader>
+<CardContent>
+	<div className="mb-6 space-y-4">
                         <div className="flex space-x-4">
                             <Input
                                 placeholder="Search programs..."
@@ -137,14 +167,14 @@ const associateCalendar = api.program.associateCalendar.useMutation({
 	</SelectContent>
 </Select>
 <Select
-	value={filters.assessmentType}
-	onValueChange={(value) => setFilters({ ...filters, assessmentType: value as AssessmentSystemType })}
+	value={filters.assessmentType || ""}
+	onValueChange={(value) => setFilters({ ...filters, assessmentType: value as AssessmentSystemType || undefined })}
 >
 	<SelectTrigger className="w-[200px]">
 		<SelectValue placeholder="Assessment System" />
 	</SelectTrigger>
 	<SelectContent>
-		<SelectItem value={undefined}>All Types</SelectItem>
+		<SelectItem value="">All Types</SelectItem>
 		{Object.values(AssessmentSystemType).map((type) => (
 			<SelectItem key={type} value={type}>
 				{type.replace('_', ' ')}
@@ -183,19 +213,71 @@ const associateCalendar = api.program.associateCalendar.useMutation({
                     </div>
 
 <div className="space-y-4">
-	<ProgramList 
-		programs={programs || []} 
-		onSelect={setSelectedProgramId}
-		calendars={calendars || []}
-	/>
-	{selectedProgramId && (
+	{mode === 'view' && (
+		<ProgramList 
+			programs={programs?.map(p => ({
+				id: p.id,
+				name: p.name,
+				description: p.description,
+				status: p.status,
+				calendar: p.calendar ? {
+					id: p.calendar.id,
+					name: p.calendar.name
+				} : null,
+				coordinator: p.coordinator ? {
+					id: p.coordinator.id,
+					user: {
+						name: p.coordinator.user.name
+					}
+				} : null,
+				classGroups: p.classGroups,
+				assessmentSystem: p.assessmentSystem ? {
+					type: p.assessmentSystem.type,
+					markingSchemes: p.assessmentSystem.markingSchemes,
+					rubrics: p.assessmentSystem.rubrics
+				} : null
+			})) || []} 
+			onSelect={(id) => {
+				setSelectedProgramId(id);
+				setMode('view');
+			}}
+			onEdit={(id) => {
+				setSelectedProgramId(id);
+				setMode('edit');
+			}}
+			calendars={calendars || []}
+		/>
+	)}
+
+	{mode === 'view' && selectedProgramId && (
+		<ProgramView 
+			programId={selectedProgramId} 
+			onBack={() => {
+				setSelectedProgramId(null);
+				setMode('view');
+			}}
+			onEdit={() => setMode('edit')}
+		/>
+	)}
+
+	{(mode === 'create' || mode === 'edit') && (
 		<ProgramForm 
 			coordinators={coordinators || []}
-			selectedProgram={programs?.find((p: ProgramWithDetails) => p.id === selectedProgramId)}
-			onSuccess={() => setSelectedProgramId(null)}
+			selectedProgram={mode === 'edit' && selectedProgramId ? 
+				programs?.find(p => p.id === selectedProgramId) : 
+				undefined}
+			onSuccess={() => {
+				setSelectedProgramId(null);
+				setMode('view');
+			}}
+			onCancel={() => {
+				setSelectedProgramId(null);
+				setMode('view');
+			}}
 		/>
 	)}
 </div>
+
                 </CardContent>
             </Card>
         </div>

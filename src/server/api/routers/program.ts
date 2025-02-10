@@ -188,12 +188,12 @@ export const programRouter = createTRPCRouter({
         assessmentSystem: z.object({
           type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID"]),
           markingScheme: z.object({
-            maxMarks: z.number(),
-            passingMarks: z.number(),
+            maxMarks: z.number().min(0),
+            passingMarks: z.number().min(0),
             gradingScale: z.array(z.object({
               grade: z.string(),
-              minPercentage: z.number(),
-              maxPercentage: z.number()
+              minPercentage: z.number().min(0).max(100),
+              maxPercentage: z.number().min(0).max(100)
             }))
           }).optional(),
           rubric: z.object({
@@ -204,7 +204,7 @@ export const programRouter = createTRPCRouter({
               description: z.string().optional(),
               levels: z.array(z.object({
                 name: z.string(),
-                points: z.number(),
+                points: z.number().min(0),
                 description: z.string().optional()
               }))
             }))
@@ -214,9 +214,10 @@ export const programRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        // Validate calendar exists
+        // Validate calendar exists and get settings
         const calendar = await ctx.prisma.calendar.findUnique({
           where: { id: input.calendarId },
+          include: { terms: true }
         });
 
         if (!calendar) {
@@ -253,46 +254,48 @@ export const programRouter = createTRPCRouter({
             }
             : undefined,
           status: input.status,
-          ...(input.assessmentSystem && {
+            ...(input.assessmentSystem && {
             assessmentSystem: {
-            create: {
+              create: {
+              name: input.name + " Assessment System",
+              description: "Default assessment system for " + input.name,
               type: input.assessmentSystem.type,
               ...(input.assessmentSystem.markingScheme && {
-              markingSchemes: {
+                markingSchemes: {
                 create: {
-                name: "Default Marking Scheme",
-                maxMarks: input.assessmentSystem.markingScheme.maxMarks,
-                passingMarks: input.assessmentSystem.markingScheme.passingMarks,
-                gradingScale: {
+                  name: "Default Marking Scheme",
+                  maxMarks: input.assessmentSystem.markingScheme.maxMarks,
+                  passingMarks: input.assessmentSystem.markingScheme.passingMarks,
+                  gradingScale: {
                   createMany: {
-                  data: input.assessmentSystem.markingScheme.gradingScale
+                    data: input.assessmentSystem.markingScheme.gradingScale
+                  }
                   }
                 }
                 }
-              }
               }),
               ...(input.assessmentSystem.rubric && {
-              rubrics: {
+                rubrics: {
                 create: {
-                name: input.assessmentSystem.rubric.name,
-                description: input.assessmentSystem.rubric.description,
-                criteria: {
+                  name: input.assessmentSystem.rubric.name,
+                  description: input.assessmentSystem.rubric.description,
+                  criteria: {
                   create: input.assessmentSystem.rubric.criteria.map(criterion => ({
-                  name: criterion.name,
-                  description: criterion.description,
-                  levels: {
+                    name: criterion.name,
+                    description: criterion.description,
+                    levels: {
                     createMany: {
-                    data: criterion.levels
+                      data: criterion.levels
                     }
-                  }
+                    }
                   }))
+                  }
                 }
                 }
-              }
               })
+              }
             }
-            }
-          })
+            })
           },
           include: includeConfig
         });
@@ -320,12 +323,12 @@ export const programRouter = createTRPCRouter({
       assessmentSystem: z.object({
         type: z.enum(["MARKING_SCHEME", "RUBRIC", "HYBRID"]),
         markingScheme: z.object({
-        maxMarks: z.number(),
-        passingMarks: z.number(),
+        maxMarks: z.number().min(0),
+        passingMarks: z.number().min(0),
         gradingScale: z.array(z.object({
           grade: z.string(),
-          minPercentage: z.number(),
-          maxPercentage: z.number()
+          minPercentage: z.number().min(0).max(100),
+          maxPercentage: z.number().min(0).max(100)
         }))
         }).optional(),
         rubric: z.object({
@@ -336,7 +339,7 @@ export const programRouter = createTRPCRouter({
           description: z.string().optional(),
           levels: z.array(z.object({
           name: z.string(),
-          points: z.number(),
+          points: z.number().min(0),
           description: z.string().optional()
           }))
         }))
@@ -347,7 +350,7 @@ export const programRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       try {
         // Check if program exists
-        const existingProgram = await ctx.prisma.Program.findUnique({
+        const existingProgram = await ctx.prisma.program.findUnique({
           where: { id: input.id },
         });
 
@@ -388,92 +391,94 @@ export const programRouter = createTRPCRouter({
 
         const { id, calendarId, coordinatorId, assessmentSystem, ...data } = input;
         
-        const updatedProgram = await ctx.prisma.Program.update({
+        const updatedProgram = await ctx.prisma.program.update({
           where: { id },
           data: {
           ...data,
           calendar: calendarId ? { connect: { id: calendarId } } : undefined,
           coordinator: coordinatorId ? { connect: { id: coordinatorId } } : undefined,
-          ...(assessmentSystem && {
+            ...(assessmentSystem && {
             assessmentSystem: {
-            upsert: {
+              upsert: {
               create: {
-              type: assessmentSystem.type,
-              ...(assessmentSystem.markingScheme && {
+                name: data.name + " Assessment System",
+                description: "Default assessment system for " + data.name,
+                type: assessmentSystem.type,
+                ...(assessmentSystem.markingScheme && {
                 markingSchemes: {
-                create: {
+                  create: {
                   name: "Default Marking Scheme",
                   maxMarks: assessmentSystem.markingScheme.maxMarks,
                   passingMarks: assessmentSystem.markingScheme.passingMarks,
                   gradingScale: {
-                  createMany: {
+                    createMany: {
                     data: assessmentSystem.markingScheme.gradingScale
+                    }
                   }
                   }
                 }
-                }
-              }),
-              ...(assessmentSystem.rubric && {
+                }),
+                ...(assessmentSystem.rubric && {
                 rubrics: {
-                create: {
+                  create: {
                   name: assessmentSystem.rubric.name,
                   description: assessmentSystem.rubric.description,
                   criteria: {
-                  create: assessmentSystem.rubric.criteria.map(criterion => ({
+                    create: assessmentSystem.rubric.criteria.map(criterion => ({
                     name: criterion.name,
                     description: criterion.description,
                     levels: {
-                    createMany: {
+                      createMany: {
                       data: criterion.levels
+                      }
                     }
-                    }
-                  }))
+                    }))
+                  }
                   }
                 }
-                }
-              })
+                })
               },
               update: {
-              type: assessmentSystem.type,
-              ...(assessmentSystem.markingScheme && {
+                type: assessmentSystem.type,
+                ...(assessmentSystem.markingScheme && {
                 markingSchemes: {
-                deleteMany: {},
-                create: {
+                  deleteMany: {},
+                  create: {
                   name: "Default Marking Scheme",
                   maxMarks: assessmentSystem.markingScheme.maxMarks,
                   passingMarks: assessmentSystem.markingScheme.passingMarks,
                   gradingScale: {
-                  createMany: {
+                    createMany: {
                     data: assessmentSystem.markingScheme.gradingScale
+                    }
                   }
                   }
                 }
-                }
-              }),
-              ...(assessmentSystem.rubric && {
+                }),
+                ...(assessmentSystem.rubric && {
                 rubrics: {
-                deleteMany: {},
-                create: {
+                  deleteMany: {},
+                  create: {
                   name: assessmentSystem.rubric.name,
                   description: assessmentSystem.rubric.description,
                   criteria: {
-                  create: assessmentSystem.rubric.criteria.map(criterion => ({
+                    create: assessmentSystem.rubric.criteria.map(criterion => ({
                     name: criterion.name,
                     description: criterion.description,
                     levels: {
-                    createMany: {
+                      createMany: {
                       data: criterion.levels
+                      }
                     }
-                    }
-                  }))
+                    }))
+                  }
                   }
                 }
-                }
-              })
+                })
+              }
               }
             }
-            }
-          })
+            })
           },
           include: includeConfig
         });
@@ -493,7 +498,7 @@ export const programRouter = createTRPCRouter({
     .input(z.string())
     .mutation(async ({ ctx, input }) => {
       try {
-        const program = await ctx.prisma.Program.delete({
+        const program = await ctx.prisma.program.delete({
           where: { id: input },
         });
 
@@ -510,7 +515,7 @@ export const programRouter = createTRPCRouter({
   getAvailableCoordinators: protectedProcedure
     .query(async ({ ctx }) => {
       try {
-        const coordinators = await ctx.prisma.CoordinatorProfile.findMany({
+        const coordinators = await ctx.prisma.coordinatorProfile.findMany({
           include: {
             user: true,
           },
@@ -536,7 +541,7 @@ export const programRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const program = await ctx.prisma.Program.update({
+        const program = await ctx.prisma.program.update({
           where: { id: input.programId },
           data: {
             calendar: {
@@ -573,11 +578,40 @@ export const programRouter = createTRPCRouter({
       }
     }),
 
+  getCalendarSettings: protectedProcedure
+    .input(z.string())
+    .query(async ({ ctx, input }) => {
+      try {
+        const calendar = await ctx.prisma.calendar.findUnique({
+          where: { id: input },
+          include: { 
+            terms: true,
+            events: true
+          }
+        });
+
+        if (!calendar) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Calendar not found",
+          });
+        }
+
+        return calendar;
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to fetch calendar settings",
+          cause: error,
+        });
+      }
+    }),
+
   searchPrograms: protectedProcedure
     .input(z.string())
     .query(async ({ ctx, input }) => {
       try {
-        const programs = await ctx.prisma.Program.findMany({
+        const programs = await ctx.prisma.program.findMany({
           where: {
             OR: [
               { name: { contains: input, mode: 'insensitive' as Prisma.QueryMode } },

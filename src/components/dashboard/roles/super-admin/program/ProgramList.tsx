@@ -14,45 +14,28 @@ import { AssessmentSystemType } from "@/types/assessment";
 interface ProgramListProps {
 	programs: Array<{
 		id: string;
-		name: string;
+		name: string | null;
 		description?: string | null;
 		status: string;
-		calendar?: { name: string } | null;
-		coordinator?: { user: { name: string } } | null;
+		calendar?: { name: string; } | null;
+		coordinator?: { user: { name: string; }; } | null;
 		classGroups?: any[];
 		assessmentSystem?: {
 			type: AssessmentSystemType;
-			markingScheme?: {
-				maxMarks: number;
-				passingMarks: number;
-				gradingScale: Array<{
-					grade: string;
-					minPercentage: number;
-					maxPercentage: number;
-				}>;
-			};
-			rubric?: {
-				name: string;
-				description?: string;
-				criteria: Array<{
-					name: string;
-					description?: string;
-					levels: Array<{
-						name: string;
-						points: number;
-						description?: string;
-					}>;
-				}>;
-			};
-		};
+			markingSchemes?: any[];
+			rubrics?: any[];
+		} | null;
 	}>;
 	onSelect: (id: string) => void;
+	onEdit: (id: string) => void;
 	calendars: Array<{ id: string; name: string }>;
 }
+
 
 export const ProgramList = ({
 	programs,
 	onSelect,
+	onEdit,
 	calendars
 }: ProgramListProps) => {
 	const [viewingProgramId, setViewingProgramId] = useState<string | null>(null);
@@ -105,14 +88,14 @@ export const ProgramList = ({
 								<Button 
 									variant="secondary" 
 									size="sm" 
-									onClick={() => setViewingProgramId(program.id)}
+									onClick={() => onSelect(program.id)}
 								>
 									View
 								</Button>
 								<Button 
 									variant="outline" 
 									size="sm" 
-									onClick={() => onSelect(program.id)}
+									onClick={() => onEdit(program.id)}
 								>
 									Edit
 								</Button>
