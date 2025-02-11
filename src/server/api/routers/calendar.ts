@@ -2,8 +2,26 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { CalendarType, Status, Visibility } from "@prisma/client";
+import type { CalendarEvent } from "@/types/calendar";
 import { TermManagementService } from "../../services/TermManagementService";
 import { CalendarInheritanceService, CalendarInheritanceError } from "../../services/CalendarInheritanceService";
+
+const transformEventData = (input: any): Omit<CalendarEvent, 'id' | 'createdAt' | 'updatedAt'> => {
+	const { inheritanceSettings, ...rest } = input;
+	return {
+		title: rest.title,
+		description: rest.description || undefined,
+		startDate: rest.startDate,
+		endDate: rest.endDate,
+		level: rest.level,
+		calendarId: rest.calendarId,
+		programId: rest.programId || undefined,
+		classGroupId: rest.classGroupId || undefined,
+		classId: rest.classId || undefined,
+		status: rest.status,
+		inheritanceSettings: rest.inheritanceSettings
+	};
+};
 
 const calendarSchema = z.object({
 	name: z.string(),
@@ -195,13 +213,13 @@ export const calendarRouter = createTRPCRouter({
 	createEvent: protectedProcedure
 		.input(z.object({
 			title: z.string(),
-			description: z.string().optional(),
+			description: z.string().optional().nullable(),
 			startDate: z.date(),
 			endDate: z.date(),
 			level: z.enum(['class', 'class_group']),
 			calendarId: z.string(),
-			classId: z.string().optional(),
-			classGroupId: z.string().optional(),
+			classId: z.string().optional().nullable(),
+			classGroupId: z.string().optional().nullable(),
 			status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE'),
 			inheritanceSettings: z.object({
 				propagateToChildren: z.boolean(),
@@ -226,12 +244,19 @@ export const calendarRouter = createTRPCRouter({
 					}
 				}
 
-				const event = await ctx.prisma.calendarEvent.create({
-					data: input
-				});
+				const event = (await ctx.prisma.calendarEvent.create({
+					data: {
+						...transformEventData(input),
+						...(input.inheritanceSettings && {
+							metadata: { inheritanceSettings: input.inheritanceSettings }
+						})
+					}
+				})) as unknown as CalendarEvent;
 
-				if (input.inheritanceSettings?.propagateToChildren && input.level === 'class_group') {
-					await inheritanceService.propagateEventToChildren(event, input.classGroupId!);
+				if (input.inheritanceSettings?.propagateToChildren && 
+					input.level === 'class_group' && 
+					input.classGroupId) {
+					await inheritanceService.propagateEventToChildren(event as CalendarEvent, input.classGroupId);
 				}
 
 				return event;
