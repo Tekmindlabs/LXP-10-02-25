@@ -1,7 +1,8 @@
 
 import { useState, useEffect } from 'react';
-import { AttendanceStatus } from '@prisma/client';
 import { AttendanceTrackingMode } from '@/types/attendance';
+import { AttendanceStatus } from '@prisma/client';
+
 import { useSession } from 'next-auth/react';
 import { api } from '@/utils/api';
 
@@ -77,7 +78,7 @@ export const CombinedAttendanceManagement = () => {
       const newAttendanceData = new Map<string, AttendanceRecord>();
       existingAttendance.forEach(record => {
         newAttendanceData.set(record.studentId, {
-            status: record.status as AttendanceStatus,
+            status: record.status,
           notes: record.notes || ''
         });
       });

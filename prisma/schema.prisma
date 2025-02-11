@@ -1089,12 +1089,13 @@ model CGPARecord {
 
 // Add new model for attendance settings
 model AttendanceSettings {
-  id                String              @id @default(cuid())
-  trackingMode      AttendanceTrackingMode @default(CLASS)
-  defaultMode       String              @default("CLASS") // CLASS or SUBJECT
-  subjectWiseEnabled Boolean            @default(false)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  id                  String                @id @default("1")
+  trackingMode        AttendanceTrackingMode @default(CLASS)
+  defaultMode         String                @default("CLASS")
+  subjectWiseEnabled  Boolean               @default(false)
+  notificationSettings String                @default("{\"enableAbsenceAlerts\":true,\"consecutiveAbsenceThreshold\":3,\"lowAttendanceThreshold\":75}")
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
   @@map("attendance_settings")
 }

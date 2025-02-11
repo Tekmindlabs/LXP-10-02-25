@@ -1,11 +1,6 @@
+import { AttendanceStatus } from '@prisma/client';
 import { z } from "zod";
 
-export enum AttendanceStatus {
-  PRESENT = "PRESENT",
-  ABSENT = "ABSENT",
-  LATE = "LATE",
-  EXCUSED = "EXCUSED"
-}
 
 export enum AttendanceTrackingMode {
   CLASS = "CLASS",
@@ -16,12 +11,8 @@ export enum AttendanceTrackingMode {
 // Enhanced attendance schema with better validation
 export const attendanceSchema = z.object({
   studentId: z.string().min(1, "Student ID is required"),
-  status: z.enum([
-    AttendanceStatus.PRESENT,
-    AttendanceStatus.ABSENT,
-    AttendanceStatus.LATE,
-    AttendanceStatus.EXCUSED
-  ]),
+  status: z.nativeEnum(AttendanceStatus),
+
   date: z.date(),
   classId: z.string().min(1, "Class ID is required"),
   subjectId: z.string().optional(),
@@ -45,12 +36,8 @@ export const bulkAttendanceSchema = z.object({
   subjectId: z.string().optional(),
   students: z.array(z.object({
     studentId: z.string().min(1, "Student ID is required"),
-    status: z.enum([
-      AttendanceStatus.PRESENT,
-      AttendanceStatus.ABSENT,
-      AttendanceStatus.LATE,
-      AttendanceStatus.EXCUSED
-    ]),
+    status: z.nativeEnum(AttendanceStatus),
+
     notes: z.string().optional()
   }))
 });
