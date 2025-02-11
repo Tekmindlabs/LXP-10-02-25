@@ -1,17 +1,13 @@
 import { AttendanceSettings } from "@/components/dashboard/settings/AttendanceSettings";
-import { DashboardShell } from "@/components/dashboard/layouts/dashboard-shell";
-import { DashboardHeader } from "@/components/dashboard/layouts/dashboard-header";
 
 export default function AttendanceSettingsPage() {
 	return (
-		<DashboardShell>
-			<DashboardHeader
-				heading="Attendance Settings"
-				text="Configure how attendance is tracked across your institution."
-			/>
-			<div className="grid gap-8">
-				<AttendanceSettings />
+		<div className="container mx-auto p-6">
+			<div className="mb-6">
+				<h1 className="text-2xl font-bold">Attendance Settings</h1>
+				<p className="text-muted-foreground">Configure how attendance is tracked across your institution.</p>
 			</div>
-		</DashboardShell>
+			<AttendanceSettings />
+		</div>
 	);
 }

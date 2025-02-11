@@ -279,6 +279,7 @@ model Subject {
   activities         ClassActivity[]
   activitySubjects   ClassActivity[]     @relation("ActivitySubjects")
   progress           ProgressTracking[]
+  attendance         Attendance[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 

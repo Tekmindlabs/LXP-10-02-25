@@ -5,10 +5,21 @@ interface AttendanceStatsProps {
 		present: number;
 		absent: number;
 		total: number;
+		bySubject?: Record<string, {
+			present: number;
+			absent: number;
+			total: number;
+		}>;
 	};
 	weeklyPercentage: number;
 	mostAbsentStudents: Array<{ name: string; absences: number }>;
 	lowAttendanceClasses: Array<{ name: string; percentage: number }>;
+	subjectStats?: Array<{
+		name: string;
+		percentage: number;
+		present: number;
+		absent: number;
+	}>;
 }
 
 export const AttendanceStats = ({
@@ -16,9 +27,11 @@ export const AttendanceStats = ({
 	weeklyPercentage,
 	mostAbsentStudents,
 	lowAttendanceClasses,
+	subjectStats,
 }: AttendanceStatsProps) => {
 	return (
-		<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+		<div className="space-y-6">
+			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 			<Card>
 				<CardContent className="pt-6">
 					<h3 className="font-semibold mb-2">Today's Overview</h3>
@@ -76,5 +89,26 @@ export const AttendanceStats = ({
 				</CardContent>
 			</Card>
 		</div>
-	);
+
+		{subjectStats && subjectStats.length > 0 && (
+			<Card>
+				<CardContent className="pt-6">
+					<h3 className="font-semibold mb-4">Subject-wise Attendance</h3>
+					<div className="space-y-4">
+						{subjectStats.map((subject, index) => (
+							<div key={index} className="flex justify-between items-center">
+								<span className="font-medium">{subject.name}</span>
+								<div className="flex gap-4">
+									<span className="text-green-600">P: {subject.present}</span>
+									<span className="text-red-600">A: {subject.absent}</span>
+									<span className="font-medium">{subject.percentage.toFixed(1)}%</span>
+								</div>
+							</div>
+						))}
+					</div>
+				</CardContent>
+			</Card>
+		)}
+	</div>
+  );
 };

@@ -1,8 +1,9 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { TRPCClientErrorBase } from '@trpc/client';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Calendar } from '@/components/ui/calendar';
+import { AttendanceTrackingMode } from '@/types/attendance';
 import type { RouterOutputs } from '@/utils/api';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,22 @@ import { api } from '@/utils/api';
 import { AttendanceStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
 
+interface ClassGroup {
+  id: string;
+  name: string;
+  classes: Array<{
+    id: string;
+    name: string;
+  }>;
+}
+
+interface Subject {
+  id: string;
+  name: string;
+  code: string;
+  classGroups?: ClassGroup[];
+}
+
 interface StudentWithUser {
   id: string;
   user: {
@@ -25,12 +42,11 @@ interface StudentWithUser {
   };
 }
 
-interface ExistingAttendance {
-  studentId: string;
+interface AttendanceRecord {
   status: AttendanceStatus;
-  notes: string | null;
+  notes?: string;
+  subjectId?: string;
 }
-
 
 export const CombinedAttendanceManagement = () => {
   const { data: session, status: sessionStatus } = useSession();
@@ -38,12 +54,26 @@ export const CombinedAttendanceManagement = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedClass, setSelectedClass] = useState<string>("no-class-selected");
   const [activeTab, setActiveTab] = useState<string>('quick');
-  interface AttendanceRecord {
-    status: AttendanceStatus;
-    notes?: string;
-  }
 
   const [attendanceData, setAttendanceData] = useState<Map<string, AttendanceRecord>>(new Map());
+  const [trackingMode, setTrackingMode] = useState<AttendanceTrackingMode>(AttendanceTrackingMode.CLASS);
+  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
+
+  // Subject query
+  const { data: subjects } = api.subject.list.useQuery(
+    undefined,
+    { enabled: !!selectedClass && trackingMode !== AttendanceTrackingMode.CLASS }
+  );
+
+  // Filtered subjects computation
+  const filteredSubjects = useMemo(() => 
+    subjects?.filter(subject => 
+      subject.classGroups?.some(group => 
+        group.classes?.some(cls => cls.id === selectedClass)
+      )
+    ) ?? [],
+    [subjects, selectedClass]
+  );
 
   // Improved role checking
   const userRoles = session?.user?.roles || [];
@@ -139,23 +169,37 @@ export const CombinedAttendanceManagement = () => {
   });
 
   const markAttendance = (studentId: string, status: AttendanceStatus, notes?: string) => {
-    setAttendanceData(new Map(attendanceData.set(studentId, {
+    const record: AttendanceRecord = {
       status,
-      notes: notes || attendanceData.get(studentId)?.notes
-    })));
+      notes: notes || attendanceData.get(studentId)?.notes,
+      ...(trackingMode !== AttendanceTrackingMode.CLASS && selectedSubject 
+        ? { subjectId: selectedSubject }
+        : {})
+    };
+    setAttendanceData(new Map(attendanceData.set(studentId, record)));
   };
 
   const handleSave = async () => {
     if (!selectedClass) return;
+    if (trackingMode !== AttendanceTrackingMode.CLASS && !selectedSubject) {
+      toast({
+        title: "Error",
+        description: "Please select a subject",
+        variant: "destructive"
+      });
+      return;
+    }
 
     try {
-        const records = Array.from(attendanceData.entries()).map(([studentId, record]) => ({
+      const records = Array.from(attendanceData.entries()).map(([studentId, record]) => ({
         studentId,
+        classId: selectedClass,
+        date: selectedDate,
         status: record.status,
         notes: record.notes,
-        date: selectedDate,
-        classId: selectedClass
+        ...(record.subjectId ? { subjectId: record.subjectId } : {})
       }));
+
 
         // Optimistic update with proper typing
         utils.attendance.getStats.setData(undefined, (old: StatsData | undefined) => ({
@@ -274,12 +318,13 @@ export const CombinedAttendanceManagement = () => {
 
           <TabsContent value="mark">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
+            <div className="space-y-4">
+              <div>
               <label className="block text-sm font-medium mb-2">Select Class</label>
-                <Select
-                  value={selectedClass || "no-class-selected"}
-                  onValueChange={setSelectedClass}
-                >
+              <Select
+                value={selectedClass || "no-class-selected"}
+                onValueChange={setSelectedClass}
+              >
                   <SelectTrigger>
                   <SelectValue placeholder="Select a class" />
                   </SelectTrigger>
@@ -302,10 +347,32 @@ export const CombinedAttendanceManagement = () => {
                     ))
                     )}
 
-                  </SelectContent>
-                </Select>
-            </div>
-            <div>
+                    </SelectContent>
+                  </Select>
+                  </div>
+                  {trackingMode !== AttendanceTrackingMode.CLASS && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Select Subject</label>
+                    <Select
+                    value={selectedSubject || ""}
+                    onValueChange={setSelectedSubject}
+                    disabled={!selectedClass}
+                    >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a subject" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {filteredSubjects.map((subject) => (
+                      <SelectItem key={subject.id} value={subject.id}>
+                        {subject.name}
+                      </SelectItem>
+                      ))}
+                    </SelectContent>
+                    </Select>
+                  </div>
+                  )}
+                </div>
+                <div>
               <label className="block text-sm font-medium mb-2">Date</label>
               <Calendar
                 mode="single"
@@ -454,10 +521,26 @@ export const CombinedAttendanceManagement = () => {
             <CardContent className="pt-6">
               <h3 className="font-semibold mb-4">Attendance Settings</h3>
               <div className="space-y-4">
-              <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between">
+                <span>Attendance Tracking Mode</span>
+                <Select
+                  value={trackingMode}
+                  onValueChange={(value: AttendanceTrackingMode) => setTrackingMode(value)}
+                >
+                  <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                  <SelectItem value={AttendanceTrackingMode.CLASS}>Class-wise</SelectItem>
+                  <SelectItem value={AttendanceTrackingMode.SUBJECT}>Subject-wise</SelectItem>
+                  <SelectItem value={AttendanceTrackingMode.BOTH}>Both</SelectItem>
+                  </SelectContent>
+                </Select>
+                </div>
+                <div className="flex items-center justify-between">
                 <span>Enable Notifications</span>
                 <Switch />
-              </div>
+                </div>
               <div className="flex items-center justify-between">
                 <span>Auto-mark Late After</span>
                 <Select defaultValue="15">
@@ -479,10 +562,14 @@ export const CombinedAttendanceManagement = () => {
           </Tabs>
 
           <div className="mt-4 flex justify-end">
-          <Button
+            <Button
             onClick={handleSave}
-            disabled={!selectedClass || attendanceData.size === 0}
-          >
+            disabled={
+              !selectedClass || 
+              attendanceData.size === 0 || 
+              (trackingMode !== AttendanceTrackingMode.CLASS && !selectedSubject)
+            }
+            >
             Save Attendance
           </Button>
           </div>

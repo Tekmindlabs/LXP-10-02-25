@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { AttendanceStatus, Prisma, AttendanceTrackingMode } from "@prisma/client";
+import { AttendanceStatus, Prisma } from "@prisma/client";
+import { AttendanceTrackingMode } from '@/types/attendance';
 import { startOfDay, endOfDay, subDays, startOfWeek, format } from "date-fns";
 import { TRPCError } from "@trpc/server";
 
@@ -57,12 +58,12 @@ export const attendanceRouter = createTRPCRouter({
           records.map(record =>
             ctx.prisma.attendance.upsert({
               where: {
-                studentId_date_subjectId: {
+                studentId_date: {
                   studentId: record.studentId,
                   date: record.date,
-                  subjectId: null
                 }
               },
+
               update: {
                 status: record.status,
                 notes: record.notes,
@@ -92,7 +93,11 @@ export const attendanceRouter = createTRPCRouter({
                         gte: startOfDay(date),
                         lte: endOfDay(date),
                     },
-                    subjectId,
+                    AND: {
+                        subject: {
+                            id: subjectId
+                        }
+                    }
                 },
                 include: {
                     student: {
@@ -114,15 +119,24 @@ export const attendanceRouter = createTRPCRouter({
             }).optional(),
         }))
         .query(async ({ ctx, input }) => {
-            const { subjectId, dateRange } = input;
-            const whereClause: Prisma.AttendanceWhereInput = { subjectId };
-            if (dateRange) {
-                whereClause.date = {
-                    gte: startOfDay(dateRange.start),
-                    lte: endOfDay(dateRange.end),
-                };
-            }
-            const attendance = await ctx.prisma.attendance.findMany({ where: whereClause });
+            const whereClause: Prisma.AttendanceWhereInput = {
+                date: input.dateRange ? {
+                    gte: startOfDay(input.dateRange.start),
+                    lte: endOfDay(input.dateRange.end),
+                } : undefined,
+                subject: {
+                    id: input.subjectId
+                }
+            };
+            
+            const attendance = await ctx.prisma.attendance.findMany({
+                where: whereClause,
+                include: {
+                    class: true,
+                    subject: true
+                }
+            });
+
             
             const totalAttendance = attendance.length;
             const presentAttendance = attendance.filter(a => a.status === 'PRESENT').length;
@@ -145,18 +159,42 @@ export const attendanceRouter = createTRPCRouter({
         }))
         .mutation(async ({ ctx, input }) => {
             const { settings } = input;
-            await ctx.prisma.attendanceSettings.upsert({
-                where: { id: '1' },
-                update: settings,
-                create: { ...settings, id: '1' },
+            const result = await ctx.prisma.$transaction(async (tx) => {
+                const existingSettings = await tx.attendance.findFirst({
+                    where: { id: '1' },
+                });
+
+                if (!existingSettings) {
+                    return tx.attendance.create({
+                        data: {
+                            id: '1',
+                            status: input.settings.trackingMode === AttendanceTrackingMode.CLASS ? 'PRESENT' : 'ABSENT',
+                            date: new Date(),
+                            studentId: 'system',
+                            classId: 'system',
+                        },
+                    });
+                }
+
+                return tx.attendance.update({
+                    where: { id: '1' },
+                    data: {
+                        status: input.settings.trackingMode === AttendanceTrackingMode.CLASS ? 'PRESENT' : 'ABSENT',
+                    },
+                });
             });
-            return settings;
+            
+            return input.settings;
         }),
 
     getSettings: protectedProcedure
         .query(async ({ ctx }) => {
-            const settings = await ctx.prisma.attendanceSettings.findFirst({
-                where: { id: '1' },
+            const settings = await ctx.prisma.attendance.findFirst({
+                where: { 
+                    id: '1',
+                    studentId: 'system',
+                    classId: 'system'
+                },
             });
 
             return settings ?? {

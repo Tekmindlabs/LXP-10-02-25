@@ -6,16 +6,19 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { AttendanceTrackingMode } from "@prisma/client";
+import { AttendanceTrackingMode, AttendanceSettings as IAttendanceSettings } from "@/types/attendance";
+
+type AttendanceSettingsState = IAttendanceSettings;
+
 
 export function AttendanceSettings() {
 	const { toast } = useToast();
-	const utils = api.useContext();
+	const utils = api.useUtils();
 	
-	const [settings, setSettings] = useState({
+	const [settings, setSettings] = useState<AttendanceSettingsState>({
 		trackingMode: AttendanceTrackingMode.CLASS,
-		defaultMode: "CLASS",
-		subjectWiseEnabled: false,
+		defaultMode: 'CLASS',
+		subjectWiseEnabled: false
 	});
 
 	const { data: currentSettings } = api.attendance.getSettings.useQuery();
@@ -31,12 +34,23 @@ export function AttendanceSettings() {
 
 	useEffect(() => {
 		if (currentSettings) {
-			setSettings(currentSettings);
+			setSettings({
+				trackingMode: AttendanceTrackingMode.CLASS,
+				defaultMode: 'CLASS' as const,
+				subjectWiseEnabled: false,
+				...currentSettings
+			} as AttendanceSettingsState);
 		}
 	}, [currentSettings]);
 
 	const handleSave = () => {
-		updateSettings({ settings });
+		updateSettings({
+			settings: {
+				trackingMode: settings.trackingMode,
+				defaultMode: settings.defaultMode,
+				subjectWiseEnabled: settings.subjectWiseEnabled
+			}
+		});
 	};
 
 	return (
@@ -70,7 +84,7 @@ export function AttendanceSettings() {
 							<Label>Default Mode</Label>
 							<Select
 								value={settings.defaultMode}
-								onValueChange={(value: string) => 
+								onValueChange={(value: 'CLASS' | 'SUBJECT') => 
 									setSettings(prev => ({ ...prev, defaultMode: value }))
 								}
 							>

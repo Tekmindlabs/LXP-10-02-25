@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { Status } from "@prisma/client";
+import { Status, AttendanceStatus } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { SubjectSyncService } from '@/server/services/SubjectSyncService';
+
+
 
 const calendarSchema = z.object({
 	id: z.string(),
@@ -38,7 +39,7 @@ export const classGroupRouter = createTRPCRouter({
 		}))
 		.mutation(async ({ ctx, input }) => {
 			const { calendar, subjectIds, subjects, ...classGroupData } = input;
-			const subjectSyncService = new SubjectSyncService(ctx.prisma);
+
 
 			return ctx.prisma.$transaction(async (tx) => {
 				// Get program calendar for inheritance
@@ -99,8 +100,19 @@ export const classGroupRouter = createTRPCRouter({
 					});
 				}
 
-				// Sync subjects with classes
-				await subjectSyncService.syncClassSubjects(classGroup.id);
+				// Create teacher assignments for each class and subject
+				if (classGroup.classes.length > 0 && allSubjectIds.length > 0) {
+					await Promise.all(classGroup.classes.map(cls => 
+						tx.teacherAssignment.createMany({
+							data: allSubjectIds.map(subjectId => ({
+								subjectId,
+								classId: cls.id,
+								teacherId: '', // Will be assigned later
+								isClassTeacher: false
+							}))
+						})
+					));
+				}
 
 				return classGroup;
 
@@ -476,11 +488,11 @@ export const classGroupRouter = createTRPCRouter({
 				throw new Error("No terms found in calendar");
 			}
 
-			const _timetable = await ctx.prisma.timetable.create({
+			await ctx.prisma.timetable.create({
 				data: {
 					termId: term.id,
 					classGroupId,
-					classId, // Add required classId
+					classId,
 				},
 			});
 
@@ -803,27 +815,34 @@ export const classGroupRouter = createTRPCRouter({
 		.query(async ({ ctx, input }) => {
 			const { id, startDate, endDate } = input;
 
-			// Get all students in the class group
-			const students = await ctx.prisma.class.findMany({
-				where: { classGroupId: id },
-				include: { students: true }
-			});
-
-			const studentIds = students.flatMap(c => c.students.map(s => s.id));
-
-			// Get attendance records with subject information
-			const attendance = await ctx.prisma.attendance.findMany({
-				where: {
-					studentId: { in: studentIds },
-					date: {
-						gte: startDate,
-						lte: endDate
-					}
-				},
+			const classGroup = await ctx.prisma.classGroup.findUnique({
+				where: { id },
 				include: {
-					subject: true
+					classes: {
+						include: {
+							attendance: {
+								where: {
+									date: {
+										gte: startDate,
+										lte: endDate
+									}
+								}
+							}
+						}
+					},
+					subjects: true
 				}
 			});
+
+			if (!classGroup) {
+				throw new TRPCError({
+					code: 'NOT_FOUND',
+					message: 'Class group not found'
+				});
+			}
+
+			// Get all attendance records
+			const attendance = classGroup.classes.flatMap(cls => cls.attendance);
 
 			// Calculate daily attendance rates
 			const attendanceByDate = attendance.reduce((acc, record) => {
@@ -840,25 +859,25 @@ export const classGroupRouter = createTRPCRouter({
 
 			// Calculate subject-wise attendance
 			const subjectWise = attendance.reduce((acc, record) => {
-				if (!record.subject) return acc;
-				
-				const subjectId = record.subject.id;
-				if (!acc[subjectId]) {
-					acc[subjectId] = {
-						subjectId,
-						subjectName: record.subject.name,
-						present: 0,
-						absent: 0,
-						total: 0,
-					};
-				}
-				
-				acc[subjectId].total += 1;
-				if (record.status === 'PRESENT') {
-					acc[subjectId].present += 1;
-				} else if (record.status === 'ABSENT') {
-					acc[subjectId].absent += 1;
-				}
+				const subjects = record.class.subjects;
+				subjects.forEach(subject => {
+					if (!acc[subject.id]) {
+						acc[subject.id] = {
+							subjectId: subject.id,
+							subjectName: subject.name,
+							present: 0,
+							absent: 0,
+							total: 0,
+						};
+					}
+					
+					acc[subject.id].total += 1;
+					if (record.status === 'PRESENT') {
+						acc[subject.id].present += 1;
+					} else if (record.status === 'ABSENT') {
+						acc[subject.id].absent += 1;
+					}
+				});
 				
 				return acc;
 			}, {} as Record<string, {

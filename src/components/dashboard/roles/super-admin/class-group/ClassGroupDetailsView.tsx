@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AttendanceTrackingMode } from "@prisma/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/utils/api";
 import { LuUsers, LuBookOpen, LuGraduationCap, LuTrendingUp } from "react-icons/lu";
@@ -22,15 +22,8 @@ interface AttendanceTrend {
 	attendanceRate: number;
 }
 
-interface SubjectAttendanceData {
-  subjectId: string;
-  subjectName: string;
-  attendanceRate: number;
-  presentCount: number;
-  absentCount: number;
-}
-
 interface ClassWithRelations extends Class {
+
 	students: StudentProfile[];
 	teachers: TeacherClass[];
 }
