@@ -271,6 +271,7 @@ model Subject {
   name               String
   code               String              @unique
   description        String?
+  credits            Float               @default(1.0)
   status             Status              @default(ACTIVE)
   classGroups        ClassGroup[]
   teachers           TeacherSubject[]
@@ -280,6 +281,7 @@ model Subject {
   activitySubjects   ClassActivity[]     @relation("ActivitySubjects")
   progress           ProgressTracking[]
   attendance         Attendance[]
+  gradeRecords      SubjectGradeRecord[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
@@ -335,7 +337,8 @@ model Class {
   teachers     TeacherClass[]
   activities   ClassActivity[]
   timetables   Timetable[]
-  attendance   Attendance[] // Add this line
+  attendance   Attendance[]
+  gradeBook    GradeBook?
   status       Status           @default(ACTIVE)
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
@@ -534,6 +537,7 @@ model AssessmentSystem {
   markingSchemes    MarkingScheme[]
   rubrics           Rubric[]
   classGroupSettings ClassGroupAssessmentSettings[]
+  gradeBooks        GradeBook[]
   createdAt         DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -556,10 +560,13 @@ model SubjectGradeRecord {
   gradeBookId String
   gradeBook   GradeBook @relation(fields: [gradeBookId], references: [id])
   subjectId   String
+  subject     Subject   @relation(fields: [subjectId], references: [id])
   termGrades  Json     // Stores Map<string, TermGrade>
   assessmentPeriodGrades Json // Stores Map<string, AssessmentPeriodGrade>
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@map("subject_grade_records")
 }
 
 model GradeHistory {

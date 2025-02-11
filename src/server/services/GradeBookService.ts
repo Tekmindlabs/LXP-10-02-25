@@ -61,9 +61,13 @@ export class GradeBookService {
 	}
 
 	private async resolveAssessmentSystem(classData: any) {
+		if (!classData?.classGroup?.program) {
+			throw new Error('Invalid class data structure');
+		}
+
 		const { program, classGroup } = classData.classGroup;
 		
-		// Inheritance chain: Program -> ClassGroup -> Class
+		// Start with program's assessment system
 		const assessmentSystem = program.assessmentSystem;
 		
 		// Check for class group customizations
@@ -74,9 +78,16 @@ export class GradeBookService {
 			}
 		});
 
-		return classGroupSettings?.isCustomized ? 
+		// Apply class group customizations if they exist
+		const finalSystem = classGroupSettings?.isCustomized ? 
 			{ ...assessmentSystem, ...classGroupSettings.customSettings } : 
 			assessmentSystem;
+
+		if (!finalSystem) {
+			throw new Error('No assessment system found in inheritance chain');
+		}
+
+		return finalSystem;
 	}
 
 	async calculateCumulativeGrade(

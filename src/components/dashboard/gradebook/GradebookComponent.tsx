@@ -4,10 +4,31 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Table } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/loading-spinner';
+import { Loader2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface GradeBookProps {
 	classId: string;
+}
+
+interface SubjectGrade {
+	termId: string;
+	periodGrades: Record<string, AssessmentPeriodGrade>;
+	finalGrade: number;
+	totalMarks: number;
+	percentage: number;
+	isPassing: boolean;
+	gradePoints: number;
+}
+
+interface AssessmentPeriodGrade {
+	periodId: string;
+	obtainedMarks: number;
+	totalMarks: number;
+	percentage: number;
+	weight: number;
+	isPassing: boolean;
 }
 
 interface GradeBook {
@@ -15,12 +36,17 @@ interface GradeBook {
 	subjectRecords: Array<{
 		id: string;
 		subjectId: string;
-		termGrades: Record<string, any>;
-		assessmentPeriodGrades: Record<string, any>;
+		subject: {
+			name: string;
+			code: string;
+		};
+		termGrades: Record<string, SubjectGrade>;
+		assessmentPeriodGrades: Record<string, AssessmentPeriodGrade>;
 	}>;
 	assessmentSystem: {
 		id: string;
 		name: string;
+		type: 'MARKING_SCHEME' | 'RUBRIC' | 'CGPA' | 'HYBRID';
 	};
 }
 
@@ -28,6 +54,8 @@ export const GradeBookComponent: React.FC<GradeBookProps> = ({ classId }) => {
 	const [gradeBook, setGradeBook] = useState<GradeBook | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [activeTerm, setActiveTerm] = useState<string>();
+	const [activeSubject, setActiveSubject] = useState<string>();
 
 	useEffect(() => {
 		fetchGradeBook();
@@ -41,6 +69,10 @@ export const GradeBookComponent: React.FC<GradeBookProps> = ({ classId }) => {
 			}
 			const data = await response.json();
 			setGradeBook(data);
+			// Set initial active term if available
+			if (data.subjectRecords[0]?.termGrades) {
+				setActiveTerm(Object.keys(data.subjectRecords[0].termGrades)[0]);
+			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'An error occurred');
 		} finally {
@@ -48,32 +80,76 @@ export const GradeBookComponent: React.FC<GradeBookProps> = ({ classId }) => {
 		}
 	};
 
-	const initializeGradeBook = async () => {
-		try {
-			setLoading(true);
-			const response = await fetch(`/api/gradebook/${classId}`, {
-				method: 'POST',
-			});
-			if (!response.ok) {
-				throw new Error('Failed to initialize gradebook');
-			}
-			await fetchGradeBook();
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'An error occurred');
-		} finally {
-			setLoading(false);
+	const formatGrade = (grade: number, type: string) => {
+		switch (type) {
+			case 'CGPA':
+				return grade.toFixed(2);
+			case 'MARKING_SCHEME':
+			case 'RUBRIC':
+				return `${grade.toFixed(1)}%`;
+			default:
+				return grade.toString();
 		}
+	};
+
+	const renderGradeTable = () => {
+		if (!gradeBook || !activeTerm) return null;
+
+		return (
+			<Table>
+				<thead>
+					<tr>
+						<th>Subject</th>
+						<th>Assessment Periods</th>
+						<th>Final Grade</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					{gradeBook.subjectRecords.map((record) => {
+						const termGrade = record.termGrades[activeTerm];
+						if (!termGrade) return null;
+
+						return (
+							<tr key={record.id}>
+								<td>{record.subject.name}</td>
+								<td>
+									{Object.entries(termGrade.periodGrades).map(([periodId, grade]) => (
+										<div key={periodId}>
+											{formatGrade(grade.percentage, gradeBook.assessmentSystem.type)}
+											{` (${grade.weight}%)`}
+										</div>
+									))}
+								</td>
+								<td>
+									{formatGrade(termGrade.finalGrade, gradeBook.assessmentSystem.type)}
+								</td>
+								<td>
+									<span className={termGrade.isPassing ? 'text-green-500' : 'text-red-500'}>
+										{termGrade.isPassing ? 'Passed' : 'Failed'}
+									</span>
+								</td>
+							</tr>
+						);
+					})}
+				</tbody>
+			</Table>
+		);
 	};
 
 	if (loading) {
-		return <Spinner />;
+		return (
+			<div className="flex justify-center items-center h-32">
+				<Loader2 className="h-8 w-8 animate-spin" />
+			</div>
+		);
 	}
 
 	if (error) {
 		return (
 			<Card className="p-4">
 				<p className="text-red-500">{error}</p>
-				<Button onClick={initializeGradeBook}>Initialize Gradebook</Button>
+				<Button onClick={() => fetchGradeBook()}>Retry</Button>
 			</Card>
 		);
 	}
@@ -82,39 +158,29 @@ export const GradeBookComponent: React.FC<GradeBookProps> = ({ classId }) => {
 		return (
 			<Card className="p-4">
 				<p>No gradebook found for this class.</p>
-				<Button onClick={initializeGradeBook}>Initialize Gradebook</Button>
 			</Card>
 		);
 	}
 
 	return (
 		<Card className="p-4">
-			<h2 className="text-2xl font-bold mb-4">Gradebook</h2>
-			<div className="overflow-x-auto">
-				<Table>
-					<thead>
-						<tr>
-							<th>Subject</th>
-							<th>Term Grades</th>
-							<th>Assessment Period Grades</th>
-							<th>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{gradeBook.subjectRecords.map((record) => (
-							<tr key={record.id}>
-								<td>{record.subjectId}</td>
-								<td>{JSON.stringify(record.termGrades)}</td>
-								<td>{JSON.stringify(record.assessmentPeriodGrades)}</td>
-								<td>
-									<Button variant="outline" size="sm">
-										Edit
-									</Button>
-								</td>
-							</tr>
+			<div className="flex justify-between items-center mb-4">
+				<h2 className="text-2xl font-bold">Gradebook</h2>
+				<Select value={activeTerm} onValueChange={setActiveTerm}>
+					<SelectTrigger className="w-[180px]">
+						<SelectValue placeholder="Select Term" />
+					</SelectTrigger>
+					<SelectContent>
+						{Object.keys(gradeBook.subjectRecords[0]?.termGrades || {}).map((termId) => (
+							<SelectItem key={termId} value={termId}>
+								Term {termId}
+							</SelectItem>
 						))}
-					</tbody>
-				</Table>
+					</SelectContent>
+				</Select>
+			</div>
+			<div className="overflow-x-auto">
+				{renderGradeTable()}
 			</div>
 		</Card>
 	);
