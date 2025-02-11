@@ -1096,6 +1096,14 @@ enum TeacherType {
   SUBJECT
 }
 
+enum ActivityConfiguration {
+  QUIZ
+  ASSIGNMENT
+  PROJECT
+  EXAM
+  PRESENTATION
+}
+
 // Add Term Result and CGPA Record Models
 model TermResult {
   id                String   @id @default(cuid())

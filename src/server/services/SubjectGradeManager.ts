@@ -1,11 +1,6 @@
-import { PrismaClient, AssessmentSystemType, ActivitySubmission, MarkingScheme, Rubric, AssessmentSystem } from '@prisma/client';
+import { PrismaClient, ActivitySubmission, MarkingScheme, Rubric, AssessmentSystem, Prisma } from '@prisma/client';
 import { AssessmentService } from './AssessmentService';
 
-interface InitializeGradeOptions {
-	termId: string;
-	assessmentPeriods: any[];
-	assessmentSystemId: string;
-}
 
 interface AssessmentPeriodGrade {
 	periodId: string;
@@ -74,7 +69,8 @@ export class SubjectGradeManager {
 			const assessment = await this.assessmentService.getAssessmentForActivity(submission.activityId);
 			
 			if (assessment) {
-				switch (assessment.type) {
+				const assessmentType = assessment.type as string;
+				switch (assessmentType) {
 					case 'MARKING_SCHEME':
 						percentage = await this.assessmentService.calculatePercentageFromMarkingScheme(
 							assessment.markingSchemeId!,
@@ -83,15 +79,23 @@ export class SubjectGradeManager {
 						);
 						break;
 					case 'RUBRIC':
-						percentage = await this.assessmentService.calculatePercentageFromRubric(
-							assessment.rubricId!,
-							[submission.rubricScores as any]
-						);
+						const rubricSubmission = submission as ActivitySubmission & { rubricScores?: Record<string, number> };
+						if (rubricSubmission.rubricScores) {
+							const scores = Object.entries(rubricSubmission.rubricScores).map(([criteriaId, points]) => ({
+								criteriaId,
+								levelId: points.toString(), // Using points as levelId since we don't have actual levelId
+								points
+							}));
+							percentage = await this.assessmentService.calculatePercentageFromRubric(
+								assessment.rubricId!,
+								[scores]
+							);
+						}
 						break;
 					default:
-						percentage = submission.obtainedMarks && submission.totalMarks ? 
-							(submission.obtainedMarks / submission.totalMarks) * 100 : 0;
+						percentage = ((submission.obtainedMarks || 0) / Math.max(1, submission.totalMarks || 0)) * 100;
 				}
+
 			}
 
 			totalObtained += submission.obtainedMarks || 0;
@@ -218,38 +222,35 @@ export class SubjectGradeManager {
 			this.calculateSubjectTermGrade(subjectId, termId, studentId, gradeBookId),
 			this.db.subjectGradeRecord.findUnique({
 				where: {
-					gradeBookId_subjectId: {
-						gradeBookId,
-						subjectId
-					}
+					id: `${gradeBookId}_${subjectId}`
 				}
 			})
 		]);
 		
-		const existingTermGrades = existingRecord?.termGrades || {};
+		const existingTermGrades = existingRecord?.termGrades ? 
+			JSON.parse(existingRecord.termGrades as string) : {};
 		
 		await this.db.subjectGradeRecord.upsert({
 			where: {
-				gradeBookId_subjectId: {
-					gradeBookId,
-					subjectId
-				}
+				id: `${gradeBookId}_${subjectId}`
 			},
 			update: {
-				termGrades: {
+				termGrades: JSON.stringify({
 					...existingTermGrades,
 					[termId]: termGrade
-				}
+				})
 			},
 			create: {
+				id: `${gradeBookId}_${subjectId}`,
 				gradeBookId,
 				subjectId,
-				termGrades: {
+				termGrades: JSON.stringify({
 					[termId]: termGrade
-				},
-				assessmentPeriodGrades: {}
+				}),
+				assessmentPeriodGrades: JSON.stringify({})
 			}
 		});
+
 
 		// Record grade history
 		await this.recordGradeHistory(studentId, subjectId, termGrade);
@@ -271,78 +272,5 @@ export class SubjectGradeManager {
 		});
 	}
 
-	private async calculateAssessmentGrade(
-		submission: ActivitySubmission,
-		assessmentSystem: AssessmentSystem
-	): Promise<number> {
-		const assessment = await this.db.assessment.findFirst({
-			where: { 
-				submissions: {
-					some: { id: submission.id }
-				}
-			},
-			include: {
-				markingScheme: true,
-				rubric: {
-					include: {
-						criteria: {
-							include: { levels: true }
-						}
-					}
-				}
-			}
-		});
 
-		if (!assessment) return 0;
-
-		switch (assessmentSystem.type) {
-			case 'MARKING_SCHEME':
-				return this.calculateMarkingSchemeGrade(submission, assessment.markingScheme);
-			case 'RUBRIC':
-				return this.calculateRubricGrade(submission, assessment.rubric);
-			case 'CGPA':
-				return this.calculateCGPAGrade(submission, assessmentSystem.cgpaConfig);
-			default:
-				return (submission.obtainedMarks / submission.totalMarks) * 100;
-		}
-	}
-
-	private calculateMarkingSchemeGrade(
-		submission: ActivitySubmission,
-		markingScheme: MarkingScheme
-	): number {
-		if (!markingScheme) return 0;
-		const percentage = (submission.obtainedMarks / markingScheme.maxMarks) * 100;
-		return percentage;
-	}
-
-	private calculateRubricGrade(
-		submission: ActivitySubmission,
-		rubric: Rubric
-	): number {
-		if (!rubric || !submission.rubricScores) return 0;
-		
-		const scores = submission.rubricScores as Record<string, number>;
-		let totalPoints = 0;
-		let maxPoints = 0;
-
-		rubric.criteria.forEach(criterion => {
-			const maxLevel = Math.max(...criterion.levels.map(l => l.points));
-			maxPoints += maxLevel;
-			totalPoints += scores[criterion.id] || 0;
-		});
-
-		return maxPoints > 0 ? (totalPoints / maxPoints) * 100 : 0;
-	}
-
-	private calculateCGPAGrade(
-		submission: ActivitySubmission,
-		cgpaConfig: any
-	): number {
-		const percentage = (submission.obtainedMarks / submission.totalMarks) * 100;
-		const gradePoint = cgpaConfig?.gradePoints?.find(
-			(gp: any) => percentage >= gp.minPercentage && percentage <= gp.maxPercentage
-		);
-		return gradePoint?.points || 0;
-	}
 }

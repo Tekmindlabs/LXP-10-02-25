@@ -1,4 +1,4 @@
-import { PrismaClient, AssessmentSystemType, Assessment } from '@prisma/client';
+import { PrismaClient, Assessment } from '@prisma/client';
 
 interface RubricScore {
 	criteriaId: string;
@@ -10,26 +10,34 @@ export class AssessmentService {
 	constructor(private db: PrismaClient) {}
 
 	async getAssessmentForActivity(activityId: string): Promise<Assessment | null> {
-		return this.db.assessment.findFirst({
-			where: { 
-				submissions: {
-					some: { activityId }
-				}
-			},
+		// Since there's no direct relationship between ClassActivity and Assessment,
+		// we'll use the activity type and configuration to determine the assessment
+		const activity = await this.db.classActivity.findUnique({
+			where: { id: activityId }
+		});
+
+		if (!activity) return null;
+
+		// Assuming the assessment ID is stored in the activity configuration
+		const config = activity.configuration as { assessmentId?: string };
+		if (!config.assessmentId) return null;
+
+		return this.db.assessment.findUnique({
+			where: { id: config.assessmentId },
 			include: {
 				markingScheme: true,
 				rubric: {
 					include: {
 						criteria: {
-							include: {
-								levels: true
-							}
+							include: { levels: true }
 						}
 					}
 				}
 			}
 		});
 	}
+
+
 
 	async calculatePercentageFromMarkingScheme(
 		markingSchemeId: string,

@@ -1,7 +1,13 @@
-import { PrismaClient, AssessmentSystemType, Prisma } from '@prisma/client';
-import { AssessmentService } from './AssessmentService';
-import { TermManagementService } from './TermManagementService';
+import { PrismaClient as PrismaClientType, Status as StatusType, Prisma } from "@prisma/client";
+import type { AcademicTerm, TermAssessmentPeriod, TermType, ProgramTermStructure } from "@/types/terms";
+import type { CalendarEvent } from "@/types/calendar";
+import { CustomSettings, CustomTerm } from "@/types/terms";
+import { AssessmentService } from "./AssessmentService";
+import { TermManagementService } from "./TermManagementService";
 import { SubjectGradeManager } from './SubjectGradeManager';
+import { SubjectTermGrade, CumulativeGrade } from '@/types/grades';
+
+type PrismaTransaction = Prisma.TransactionClient;
 
 interface CreateClassInput {
 	name: string;
@@ -9,14 +15,28 @@ interface CreateClassInput {
 	capacity: number;
 }
 
-interface CumulativeGrade {
-	gpa: number;
-	totalCredits: number;
-	earnedCredits: number;
-	subjectGrades: Record<string, SubjectTermGrade>;
+interface ClassData {
+	classGroup: {
+		program: {
+			assessmentSystem: any;
+			termStructures: Array<{
+				id: string;
+				academicTerms: Array<{
+					id: string;
+					termId: string;
+					assessmentWeightage: number;
+					assessmentPeriods: Array<{
+						id: string;
+						weight: number;
+					}>;
+				}>;
+			}>;
+		};
+		id: string;
+		subjects: Array<{ id: string }>;
+	};
 }
 
-type PrismaTransaction = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use">;
 
 export class GradeBookService {
 	private subjectGradeManager: SubjectGradeManager;
@@ -66,8 +86,8 @@ export class GradeBookService {
 				subjectRecords: {
 					create: classData.classGroup.subjects.map(subject => ({
 						subjectId: subject.id,
-						termGrades: {},
-						assessmentPeriodGrades: {}
+						termGrades: Prisma.JsonNull,
+						assessmentPeriodGrades: Prisma.JsonNull
 					}))
 				}
 			}
@@ -81,8 +101,8 @@ export class GradeBookService {
 	}
 
 	async createClassWithInheritance(classData: CreateClassInput): Promise<any> {
-		// Start transaction for atomic operations
 		return await this.db.$transaction(async (tx) => {
+
 			// 1. Create class with inherited class group settings
 			const newClass = await tx.class.create({
 				data: {
@@ -137,28 +157,25 @@ export class GradeBookService {
 		gradeBookId: string,
 		classGroupId: string
 	): Promise<void> {
-		// Get subjects from class group
 		const classGroup = await tx.classGroup.findUnique({
 			where: { id: classGroupId },
-			include: {
-				subjects: true,
-			},
+			include: { subjects: true }
 		});
 
 		if (!classGroup) {
 			throw new Error(`ClassGroup with id ${classGroupId} not found`);
 		}
 
-		// Create subject grade records
 		await tx.subjectGradeRecord.createMany({
 			data: classGroup.subjects.map(subject => ({
 				gradeBookId,
 				subjectId: subject.id,
-				termGrades: {},
-				assessmentPeriodGrades: {}
+				termGrades: Prisma.JsonNull,
+				assessmentPeriodGrades: Prisma.JsonNull
 			}))
 		});
 	}
+
 
 	private async resolveAndInheritAssessmentSystem(
 		classGroupId: string,
@@ -240,68 +257,62 @@ export class GradeBookService {
 		});
 	}
 
-	private async resolveAssessmentSystem(classData: any) {
-		if (!classData?.classGroup?.program) {
-			throw new Error('Invalid class data structure');
-		}
-
-		const { program, classGroup } = classData.classGroup;
-		
-		// Start with program's assessment system
+	private async resolveAssessmentSystem(classData: ClassData) {
+		const { program } = classData.classGroup;
 		const assessmentSystem = program.assessmentSystem;
 		
-		// Check for class group customizations
+		if (!assessmentSystem) {
+			throw new Error('No assessment system found');
+		}
+
 		const classGroupSettings = await this.db.classGroupAssessmentSettings.findFirst({
 			where: { 
-				classGroupId: classGroup.id,
+				classGroupId: classData.classGroup.id,
 				assessmentSystemId: assessmentSystem.id
 			}
 		});
 
-		// Apply class group customizations if they exist
-		const finalSystem = classGroupSettings?.isCustomized ? 
-			{ ...assessmentSystem, ...classGroupSettings.customSettings } : 
-			assessmentSystem;
-
-		if (!finalSystem) {
-			throw new Error('No assessment system found in inheritance chain');
+		if (classGroupSettings?.isCustomized && classGroupSettings.customSettings) {
+			const settings = classGroupSettings.customSettings as Prisma.JsonObject;
+			return {
+				...assessmentSystem,
+				settings
+			};
 		}
 
-		return finalSystem;
+		return assessmentSystem;
+
 	}
 
 	private async resolveAssessmentSystemWithTransaction(
-		tx: Prisma.TransactionClient,
-		classData: any
-	) {
-		if (!classData?.classGroup?.program) {
-			throw new Error('Invalid class data structure');
-		}
-
-		const { program, classGroup } = classData.classGroup;
-		
-		// Start with program's assessment system
+		tx: PrismaTransaction,
+		classData: ClassData
+	): Promise<any> {
+		const { program } = classData.classGroup;
 		const assessmentSystem = program.assessmentSystem;
 		
-		// Check for class group customizations
+		if (!assessmentSystem) {
+			throw new Error('No assessment system found');
+		}
+
 		const classGroupSettings = await tx.classGroupAssessmentSettings.findFirst({
 			where: { 
-				classGroupId: classGroup.id,
+				classGroupId: classData.classGroup.id,
 				assessmentSystemId: assessmentSystem.id
 			}
 		});
 
-		// Apply class group customizations if they exist
-		const finalSystem = classGroupSettings?.isCustomized ? 
-			{ ...assessmentSystem, ...classGroupSettings.customSettings } : 
-			assessmentSystem;
-
-		if (!finalSystem) {
-			throw new Error('No assessment system found in inheritance chain');
+		if (classGroupSettings?.isCustomized && classGroupSettings.customSettings) {
+			const settings = classGroupSettings.customSettings as Prisma.JsonObject;
+			return {
+				...assessmentSystem,
+				settings
+			};
 		}
 
-		return finalSystem;
+		return assessmentSystem;
 	}
+
 
 
 	async calculateCumulativeGrade(
@@ -342,14 +353,16 @@ export class GradeBookService {
 		let totalCredits = 0;
 		let earnedCredits = 0;
 
-		// Get term settings for weightage
-		const termStructure = gradeBook.class.classGroup.program.termStructures.find(
-			ts => ts.academicTerms.some(at => at.termId === termId)
-		);
+		const termStructure = gradeBook.class.classGroup.program.termStructures.find(ts => {
+			return ts.academicTerms?.some(term => term.termId === termId);
+		});
 
-		const termSettings = termStructure?.termSettings.find(
-			ts => ts.classGroupId === gradeBook.class.classGroup.id
-		);
+		if (!termStructure) {
+			throw new Error('Term structure not found');
+		}
+
+		const academicTerm = termStructure.academicTerms.find(term => term.termId === termId);
+		const weight = academicTerm?.assessmentWeightage ?? 1.0;
 
 		// Calculate grades for each subject
 		for (const subject of gradeBook.class.classGroup.subjects) {
@@ -362,8 +375,7 @@ export class GradeBookService {
 			
 			subjectGrades[subject.id] = termGrade;
 			
-			// Apply term weightage if configured
-			const weightedGradePoints = termGrade.gradePoints * (termSettings?.weight || 1.0);
+			const weightedGradePoints = termGrade.gradePoints * weight;
 			totalGradePoints += weightedGradePoints * termGrade.credits;
 			totalCredits += termGrade.credits;
 			
@@ -371,7 +383,6 @@ export class GradeBookService {
 				earnedCredits += termGrade.credits;
 			}
 
-			// Update subject grade record
 			await this.subjectGradeManager.updateSubjectGradeRecord(
 				gradeBookId,
 				subject.id,
@@ -379,6 +390,7 @@ export class GradeBookService {
 				studentId
 			);
 		}
+
 
 		const gpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
 
@@ -440,5 +452,12 @@ export class GradeBookService {
 		if (percentage >= 60) return 2.5;
 		if (percentage >= 50) return 2.0;
 		return 0.0;
+	}
+
+	async calculateSubjectGrade(classId: string, subjectId: string, termId: string): Promise<number> {
+		// Implementation to calculate subject grade based on assessments and term
+		const assessments = await this.assessmentService.getAssessmentsBySubjectAndTerm(subjectId, termId);
+		// ... logic to calculate grade based on assessments ...
+		return 0; // Placeholder, replace with actual calculation
 	}
 }

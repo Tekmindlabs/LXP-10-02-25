@@ -1,5 +1,17 @@
 export type TermType = 'SEMESTER' | 'TERM' | 'QUARTER';
 
+export interface CustomTerm {
+	termId: string;
+	startDate: Date;
+	endDate: Date;
+	assessmentPeriods: TermAssessmentPeriod[];
+}
+
+export interface CustomSettings {
+	terms: CustomTerm[];
+}
+
+
 export interface TermAssessmentPeriod {
 	id: string;
 	name: string;

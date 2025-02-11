@@ -1,28 +1,21 @@
-import { PrismaClient, Status, Prisma } from "@prisma/client";
-import type { AcademicTerm, TermAssessmentPeriod, TermType } from "@/types/terms";
+import { PrismaClient as PrismaClientType, Status as StatusType, Prisma } from "@prisma/client";
+import type { AcademicTerm, TermAssessmentPeriod, TermType, ProgramTermStructure } from "@/types/terms";
 import type { CalendarEvent } from "@/types/calendar";
+import { CustomSettings, CustomTerm } from "@/types/terms";
 
 interface CalendarSettings {
 	inheritFromProgram: boolean;
 	customEvents?: CalendarEvent[];
 }
 
-interface CustomTerm {
-	termId: string;
-	startDate: Date;
-	endDate: Date;
-	assessmentPeriods: TermAssessmentPeriod[];
-}
-
-interface CustomSettings {
-	terms: CustomTerm[];
-}
+type PrismaClient = PrismaClientType;
+type Status = StatusType;
 
 export class TermManagementService {
-
 	private db: PrismaClient;
 
 	constructor(db: PrismaClient) {
+
 		this.db = db;
 	}
 
@@ -72,7 +65,7 @@ export class TermManagementService {
 		});
 
 		await Promise.all(
-			classGroups.map(group =>
+			classGroups.map((group: { id: string }) =>
 				this.db.classGroupTermSettings.create({
 					data: {
 						classGroup: { connect: { id: group.id } },
@@ -149,7 +142,7 @@ export class TermManagementService {
 			throw new Error("Program term structure not found");
 		}
 
-		return await this.db.$transaction(async (tx) => {
+		return await this.db.$transaction(async (tx: Prisma.TransactionClient) => {
 			// First, delete existing assessment periods
 			await tx.termAssessmentPeriod.deleteMany({
 				where: {
@@ -205,7 +198,12 @@ export class TermManagementService {
 				const termMap = new Map(updates.terms.map(t => [t.calendarTermId, t.type]));
 				await this.propagateTermUpdatesToClassGroups(
 					programId,
-					updatedTerms.academicTerms.map(academicTerm => ({
+					updatedTerms.academicTerms.map((academicTerm: {
+						id: string;
+						name: string;
+						term: { id: string; startDate: Date; endDate: Date };
+						assessmentPeriods: TermAssessmentPeriod[];
+					}) => ({
 						id: academicTerm.id,
 						name: academicTerm.name,
 						startDate: academicTerm.term.startDate,
@@ -283,7 +281,14 @@ async createClassCalendar(classId: string) {
 		where: { classGroupId: classData.classGroupId }
 	});
 
-	const classEvents = classGroupEvents.map(event => ({
+	const classEvents = classGroupEvents.map((event: {
+		title: string;
+		description: string | null;
+		startDate: Date;
+		endDate: Date;
+		status: string;
+		programId: string | null;
+	}) => ({
 		title: event.title,
 		description: event.description,
 		startDate: event.startDate,
@@ -333,7 +338,7 @@ async createClassCalendar(classId: string) {
 		});
 
 		return Promise.all(
-			classGroups.map(group => 
+			classGroups.map((group: { id: string }) => 
 				this.db.classGroupTermSettings.updateMany({
 					where: { 
 						classGroupId: group.id,
@@ -359,7 +364,7 @@ async createClassCalendar(classId: string) {
 	async inheritClassGroupTerms(
 		classGroupId: string,
 		classId: string
-	): Promise<any> {
+	): Promise<ProgramTermStructure> {
 		const classGroup = await this.db.classGroup.findUnique({
 			where: { id: classGroupId },
 			include: {

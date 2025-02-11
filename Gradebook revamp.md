@@ -1,4 +1,4 @@
-Based on the provided codebase and requirements, here's a comprehensive approach to implement subject-based grading and cumulative grading aligned with the existing assessment and term management systems:
+
 
     Grading System Architecture:
 

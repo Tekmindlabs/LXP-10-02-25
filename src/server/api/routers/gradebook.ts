@@ -213,13 +213,12 @@ export const gradebookRouter = createTRPCRouter({
 					gradingType: config.gradingType
 				};
 
-				const assessmentService = new AssessmentService(ctx.prisma);
-				const termService = new TermManagementService(ctx.prisma);
 				const gradeBookService = new GradeBookService(
-					ctx.prisma,
-					assessmentService,
-					termService
+					ctx.prisma, 
+					new AssessmentService(ctx.prisma),
+					new TermManagementService(ctx.prisma)
 				);
+
 
 				// Update grade and recalculate
 				const submission = await ctx.prisma.activitySubmission.upsert({
@@ -264,13 +263,12 @@ export const gradebookRouter = createTRPCRouter({
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
-				const assessmentService = new AssessmentService(ctx.prisma);
-				const termService = new TermManagementService(ctx.prisma);
 				const gradeBookService = new GradeBookService(
 					ctx.prisma,
-					assessmentService,
-					termService
+					new AssessmentService(ctx.prisma),
+					new TermManagementService(ctx.prisma)
 				);
+
 
 				const subjectGrade = await gradeBookService.calculateSubjectGrade(
 					input.gradeBookId,
@@ -297,8 +295,8 @@ export const gradebookRouter = createTRPCRouter({
 			try {
 				const gradeBookService = new GradeBookService(
 					ctx.prisma,
-					ctx.assessmentService,
-					ctx.termService
+					new AssessmentService(ctx.prisma),
+					new TermManagementService(ctx.prisma)
 				);
 
 				const termGrade = await gradeBookService.calculateTermGrade(
