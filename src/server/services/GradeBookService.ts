@@ -1,30 +1,26 @@
 import { PrismaClient, AssessmentSystemType } from '@prisma/client';
 import { AssessmentService } from './AssessmentService';
 import { TermManagementService } from './TermManagementService';
+import { SubjectGradeManager } from './SubjectGradeManager';
 
-interface SubjectGrade {
-	obtainedMarks: number;
-	totalMarks: number;
-	percentage: number;
-	grade?: string;
-	isPassing: boolean;
-}
-
-interface TermGrade {
-	termId: string;
-	grades: Record<string, SubjectGrade>; // subjectId -> grade
+interface CumulativeGrade {
 	gpa: number;
 	totalCredits: number;
 	earnedCredits: number;
+	subjectGrades: Record<string, SubjectTermGrade>;
 }
 
-
 export class GradeBookService {
+	private subjectGradeManager: SubjectGradeManager;
+
 	constructor(
 		private db: PrismaClient,
 		private assessmentService: AssessmentService,
 		private termService: TermManagementService
-	) {}
+	) {
+		this.subjectGradeManager = new SubjectGradeManager(db);
+	}
+
 
 	async initializeGradeBook(classId: string): Promise<void> {
 		const classData = await this.db.class.findUnique({
@@ -83,59 +79,30 @@ export class GradeBookService {
 			assessmentSystem;
 	}
 
-	async calculateSubjectGrade(
+	async calculateCumulativeGrade(
 		gradeBookId: string,
-		subjectId: string,
+		studentId: string,
 		termId: string
-	): Promise<SubjectGrade> {
-		const submissions = await this.db.activitySubmission.findMany({
-			where: {
-				activity: {
-					subjectId,
-					class: { gradeBook: { id: gradeBookId } }
-				},
-				gradedAt: { not: null }
-			},
-			include: {
-				activity: {
-					include: {
-						subject: true
-					}
-				}
-			}
-		});
-
-		let totalObtained = 0;
-		let totalPossible = 0;
-
-		submissions.forEach(submission => {
-			totalObtained += submission.obtainedMarks || 0;
-			totalPossible += submission.totalMarks || 0;
-		});
-
-		const percentage = totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0;
-		
-		return {
-			obtainedMarks: totalObtained,
-			totalMarks: totalPossible,
-			percentage,
-			isPassing: percentage >= 50 // Configure passing threshold
-		};
-	}
-
-	async calculateTermGrade(
-		gradeBookId: string,
-		termId: string
-	): Promise<TermGrade> {
+	): Promise<CumulativeGrade> {
 		const gradeBook = await this.db.gradeBook.findUnique({
 			where: { id: gradeBookId },
 			include: {
+				assessmentSystem: true,
 				subjectRecords: true,
 				class: {
 					include: {
 						classGroup: {
 							include: {
-								subjects: true
+								subjects: true,
+								program: {
+									include: {
+										termStructures: {
+											include: {
+												termSettings: true
+											}
+										}
+									}
+								}
 							}
 						}
 					}
@@ -145,31 +112,99 @@ export class GradeBookService {
 
 		if (!gradeBook) throw new Error('Grade book not found');
 
-		const subjectGrades: Record<string, SubjectGrade> = {};
+		const subjectGrades: Record<string, SubjectTermGrade> = {};
 		let totalGradePoints = 0;
 		let totalCredits = 0;
 		let earnedCredits = 0;
 
+		// Get term settings for weightage
+		const termStructure = gradeBook.class.classGroup.program.termStructures.find(
+			ts => ts.academicTerms.some(at => at.termId === termId)
+		);
+
+		const termSettings = termStructure?.termSettings.find(
+			ts => ts.classGroupId === gradeBook.class.classGroup.id
+		);
+
+		// Calculate grades for each subject
 		for (const subject of gradeBook.class.classGroup.subjects) {
-			const grade = await this.calculateSubjectGrade(gradeBookId, subject.id, termId);
-			subjectGrades[subject.id] = grade;
+			const termGrade = await this.subjectGradeManager.calculateSubjectTermGrade(
+				subject.id,
+				termId,
+				studentId,
+				gradeBook.assessmentSystemId
+			);
 			
-			// Calculate GPA based on assessment system
-			const gradePoints = this.calculateGradePoints(grade.percentage);
-			totalGradePoints += gradePoints;
-			totalCredits += 1; // Adjust based on subject credits
-			if (grade.isPassing) earnedCredits += 1;
+			subjectGrades[subject.id] = termGrade;
+			
+			// Apply term weightage if configured
+			const weightedGradePoints = termGrade.gradePoints * (termSettings?.weight || 1.0);
+			totalGradePoints += weightedGradePoints * termGrade.credits;
+			totalCredits += termGrade.credits;
+			
+			if (termGrade.isPassing) {
+				earnedCredits += termGrade.credits;
+			}
+
+			// Update subject grade record
+			await this.subjectGradeManager.updateSubjectGradeRecord(
+				gradeBookId,
+				subject.id,
+				termId,
+				studentId
+			);
 		}
 
 		const gpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
 
-		return {
+		// Record term result
+		await this.recordTermResult(
+			studentId,
 			termId,
-			grades: subjectGrades,
 			gpa,
 			totalCredits,
-			earnedCredits
+			earnedCredits,
+			termSettings?.customSettings
+		);
+
+		return {
+			gpa,
+			totalCredits,
+			earnedCredits,
+			subjectGrades
 		};
+	}
+
+	private async recordTermResult(
+		studentId: string,
+		termId: string,
+		gpa: number,
+		totalCredits: number,
+		earnedCredits: number,
+		customSettings?: any
+	): Promise<void> {
+		await this.db.termResult.upsert({
+			where: {
+				studentId_programTermId: {
+					studentId,
+					programTermId: termId
+				}
+			},
+			update: {
+				gpa,
+				totalCredits,
+				earnedCredits,
+				metadata: customSettings
+			},
+			create: {
+				studentId,
+				programTermId: termId,
+				gpa,
+				totalCredits,
+				earnedCredits,
+				metadata: customSettings
+			}
+		});
 	}
 
 	private calculateGradePoints(percentage: number): number {

@@ -7,6 +7,7 @@ import {
 	ActivityConfiguration,
 	ActivityGradingType
 } from "@/types/class-activity";
+import { SubjectGradeManager } from "@/server/services/SubjectGradeManager";
 
 interface GradeData {
 	obtainedMarks: number;
@@ -256,6 +257,62 @@ export const gradebookRouter = createTRPCRouter({
 				throw new TRPCError({
 					code: 'INTERNAL_SERVER_ERROR',
 					message: 'Failed to fetch term grades',
+					cause: error
+				});
+			}
+		}),
+
+	getCumulativeGrades: permissionProtectedProcedure(Permissions.GRADEBOOK_VIEW)
+		.input(z.object({ 
+			gradeBookId: z.string(),
+			studentId: z.string(),
+			termId: z.string()
+		}))
+		.query(async ({ ctx, input }) => {
+			try {
+				const gradeBookService = new GradeBookService(
+					ctx.prisma,
+					ctx.assessmentService,
+					ctx.termService
+				);
+
+				const cumulativeGrade = await gradeBookService.calculateCumulativeGrade(
+					input.gradeBookId,
+					input.studentId,
+					input.termId
+				);
+
+				return cumulativeGrade;
+			} catch (error) {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Failed to fetch cumulative grades',
+					cause: error
+				});
+			}
+		}),
+
+	getAssessmentPeriodGrades: permissionProtectedProcedure(Permissions.GRADEBOOK_VIEW)
+		.input(z.object({ 
+			subjectId: z.string(),
+			periodId: z.string(),
+			studentId: z.string()
+		}))
+		.query(async ({ ctx, input }) => {
+			try {
+				const subjectGradeManager = new SubjectGradeManager(ctx.prisma);
+				
+				const periodGrade = await subjectGradeManager.calculateAssessmentPeriodGrade(
+					input.subjectId,
+					input.periodId,
+					input.studentId
+				);
+
+				return periodGrade;
+			} catch (error) {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Failed to fetch assessment period grades',
 					cause: error
 				});
 			}
