@@ -5,13 +5,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Trash2 } from "lucide-react";
 import { TermSystemType } from "@/types/program";
 
+interface Term {
+	name: string;
+	startDate: Date;
+	endDate: Date;
+	type: TermSystemType;
+	assessmentPeriods: Array<{
+		name: string;
+		startDate: Date;
+		endDate: Date;
+		weight: number;
+	}>;
+}
+
+interface TermSystem {
+	type: TermSystemType;
+	terms: Term[];
+}
+
 interface TermSystemSectionProps {
-	termSystem: any;
+	termSystem: TermSystem;
 	onTermSystemTypeChange: (type: TermSystemType) => void;
 	onAddTerm: (type: TermSystemType) => void;
 	onRemoveTerm: (index: number) => void;
 	onTermChange: (index: number, field: string, value: any) => void;
 }
+
+const formatDate = (date: Date): string => {
+	try {
+		if (!(date instanceof Date) || isNaN(date.getTime())) {
+			return '';
+		}
+		return date.toISOString().split('T')[0];
+	} catch {
+		return '';
+	}
+};
 
 export const TermSystemSection = ({
 	termSystem,
@@ -41,7 +70,7 @@ export const TermSystemSection = ({
 			</div>
 
 			<div className="space-y-2">
-				{termSystem.terms.map((term: any, index: number) => (
+				{termSystem.terms.map((term, index) => (
 					<div key={index} className="space-y-2 border p-2 rounded">
 						<div className="flex justify-between items-center">
 							<h4 className="font-medium">{term.name}</h4>
@@ -59,7 +88,7 @@ export const TermSystemSection = ({
 								<Label>Start Date</Label>
 								<Input
 									type="date"
-									value={term.startDate.toISOString().split('T')[0]}
+									value={formatDate(term.startDate)}
 									onChange={(e) => onTermChange(index, 'startDate', new Date(e.target.value))}
 								/>
 							</div>
@@ -67,7 +96,7 @@ export const TermSystemSection = ({
 								<Label>End Date</Label>
 								<Input
 									type="date"
-									value={term.endDate.toISOString().split('T')[0]}
+									value={formatDate(term.endDate)}
 									onChange={(e) => onTermChange(index, 'endDate', new Date(e.target.value))}
 								/>
 							</div>

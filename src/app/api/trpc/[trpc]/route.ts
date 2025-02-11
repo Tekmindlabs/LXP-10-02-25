@@ -11,7 +11,7 @@ const handler = (req: NextRequest) =>
 		req,
 		router: appRouter,
 		createContext: async () => {
-			const ctx = await createTRPCContext({ req });
+			const ctx = await createTRPCContext();
 			console.log('TRPC Context Created:', {
 				hasSession: !!ctx.session,
 				userId: ctx.session?.user?.id,
@@ -25,7 +25,7 @@ const handler = (req: NextRequest) =>
 						console.error(
 							`❌ tRPC failed on ${path ?? "<no-path>"}: ${error.message}`
 						);
-						if (error.cause) {
+						if (error.cause && typeof error.cause === 'object') {
 							console.error('Error cause:', error.cause);
 						}
 					}

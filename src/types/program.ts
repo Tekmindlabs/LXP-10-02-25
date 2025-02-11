@@ -1,6 +1,18 @@
 import { Status } from "@prisma/client";
 import { AssessmentSystemType } from "@/types/assessment";
 
+export interface Calendar {
+	id: string;
+	name: string;
+}
+
+export interface Coordinator {
+	id: string;
+	user: {
+		name: string;
+	};
+}
+
 export type TermSystemType = 'SEMESTER' | 'TERM' | 'QUARTER';
 
 export interface ProgramFormData {
@@ -61,11 +73,8 @@ export interface ProgramFormData {
 	};
 }
 
-export interface Coordinator {
-	id: string;
-	name: string;
-	email: string;
-}
+
+
 
 export interface Program extends ProgramFormData {
 	id: string;
