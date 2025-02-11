@@ -451,10 +451,22 @@ export const programRouter = createTRPCRouter({
           }
         }
 
-        // Update program data using transaction
         const updatedProgram = await ctx.prisma.$transaction(async (prisma) => {
+          // Delete grading scales first if assessment system is being updated
+          if (input.assessmentSystem?.markingScheme) {
+          await prisma.gradingScale.deleteMany({
+            where: {
+            markingScheme: {
+              assessmentSystem: {
+              programId: input.id
+              }
+            }
+            }
+          });
+          }
+
           if (input.termSystem) {
-          // First delete class group term settings
+          // Delete class group term settings
           await prisma.classGroupTermSettings.deleteMany({
             where: {
             programTerm: {
@@ -463,7 +475,7 @@ export const programRouter = createTRPCRouter({
             }
           });
 
-          // Then delete assessment periods
+          // Delete assessment periods
           await prisma.termAssessmentPeriod.deleteMany({
             where: {
             term: {
@@ -474,7 +486,7 @@ export const programRouter = createTRPCRouter({
             }
           });
           
-          // Then delete academic terms
+          // Delete academic terms
           await prisma.academicTerm.deleteMany({
             where: {
             termStructure: {
@@ -483,7 +495,7 @@ export const programRouter = createTRPCRouter({
             }
           });
           
-          // Finally delete term structures
+          // Delete term structures
           await prisma.programTermStructure.deleteMany({
             where: {
             programId: input.id
@@ -491,7 +503,7 @@ export const programRouter = createTRPCRouter({
           });
           }
 
-          // Now update the program with new data
+          // Update the program with new data
           return prisma.program.update({
           where: { id: input.id },
           data: {
