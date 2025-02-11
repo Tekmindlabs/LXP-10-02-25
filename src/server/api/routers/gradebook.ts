@@ -203,4 +203,61 @@ export const gradebookRouter = createTRPCRouter({
 			});
 		}),
 
+	getSubjectGrades: permissionProtectedProcedure(Permissions.GRADEBOOK_VIEW)
+		.input(z.object({ 
+			gradeBookId: z.string(),
+			subjectId: z.string(),
+			termId: z.string()
+		}))
+		.query(async ({ ctx, input }) => {
+			try {
+				const gradeBookService = new GradeBookService(
+					ctx.prisma,
+					ctx.assessmentService,
+					ctx.termService
+				);
+
+				const subjectGrade = await gradeBookService.calculateSubjectGrade(
+					input.gradeBookId,
+					input.subjectId,
+					input.termId
+				);
+
+				return subjectGrade;
+			} catch (error) {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Failed to fetch subject grades',
+					cause: error
+				});
+			}
+		}),
+
+	getTermGrades: permissionProtectedProcedure(Permissions.GRADEBOOK_VIEW)
+		.input(z.object({ 
+			gradeBookId: z.string(),
+			termId: z.string()
+		}))
+		.query(async ({ ctx, input }) => {
+			try {
+				const gradeBookService = new GradeBookService(
+					ctx.prisma,
+					ctx.assessmentService,
+					ctx.termService
+				);
+
+				const termGrade = await gradeBookService.calculateTermGrade(
+					input.gradeBookId,
+					input.termId
+				);
+
+				return termGrade;
+			} catch (error) {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Failed to fetch term grades',
+					cause: error
+				});
+			}
+		})
 });

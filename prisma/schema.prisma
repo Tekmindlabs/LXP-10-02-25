@@ -540,6 +540,38 @@ model AssessmentSystem {
   @@map("assessment_systems")
 }
 
+model GradeBook {
+  id              String   @id @default(cuid())
+  classId         String   @unique
+  class           Class    @relation(fields: [classId], references: [id])
+  assessmentSystem AssessmentSystem @relation(fields: [assessmentSystemId], references: [id])
+  assessmentSystemId String
+  subjectRecords  SubjectGradeRecord[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model SubjectGradeRecord {
+  id          String   @id @default(cuid())
+  gradeBookId String
+  gradeBook   GradeBook @relation(fields: [gradeBookId], references: [id])
+  subjectId   String
+  termGrades  Json     // Stores Map<string, TermGrade>
+  assessmentPeriodGrades Json // Stores Map<string, AssessmentPeriodGrade>
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model GradeHistory {
+  id          String   @id @default(cuid())
+  studentId   String
+  subjectId   String
+  gradeValue  Float
+  oldValue    Float?
+  modifiedBy  String
+  modifiedAt  DateTime @default(now())
+  reason      String?
+}
 
 // Marking System
 model MarkingScheme {

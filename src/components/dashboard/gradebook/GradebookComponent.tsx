@@ -1,57 +1,121 @@
-import { useState } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api } from "@/utils/api";
-import { ActivityWithBasicSubmissions } from "@/types/class-activity";
-import { GradebookOverview } from './GradebookOverview';
-import { StudentGrades } from './StudentGrades';
+'use client';
 
-interface GradebookProps {
+import { useState, useEffect } from 'react';
+import { Card } from '@/components/ui/card';
+import { Table } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/loading-spinner';
+
+interface GradeBookProps {
 	classId: string;
-	type?: 'student' | 'teacher';
 }
 
-export const GradebookComponent: React.FC<GradebookProps> = ({ classId, type }) => {
-	const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'grades'>('overview');
-	
-	const { data: activities, isLoading: activitiesLoading } = api.classActivity.getAll.useQuery({
-		classId,
-	});
+interface GradeBook {
+	id: string;
+	subjectRecords: Array<{
+		id: string;
+		subjectId: string;
+		termGrades: Record<string, any>;
+		assessmentPeriodGrades: Record<string, any>;
+	}>;
+	assessmentSystem: {
+		id: string;
+		name: string;
+	};
+}
 
-	const { data: overviewData, isLoading: overviewLoading } = api.gradebook.getOverview.useQuery({
-		classId,
-	});
+export const GradeBookComponent: React.FC<GradeBookProps> = ({ classId }) => {
+	const [gradeBook, setGradeBook] = useState<GradeBook | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 
-	const { data: gradesData, isLoading: gradesLoading } = api.gradebook.getGrades.useQuery({
-		classId,
-	});
+	useEffect(() => {
+		fetchGradeBook();
+	}, [classId]);
 
-	if (activitiesLoading || overviewLoading || gradesLoading) {
-		return <div>Loading...</div>;
+	const fetchGradeBook = async () => {
+		try {
+			const response = await fetch(`/api/gradebook/${classId}`);
+			if (!response.ok) {
+				throw new Error('Failed to fetch gradebook');
+			}
+			const data = await response.json();
+			setGradeBook(data);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'An error occurred');
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const initializeGradeBook = async () => {
+		try {
+			setLoading(true);
+			const response = await fetch(`/api/gradebook/${classId}`, {
+				method: 'POST',
+			});
+			if (!response.ok) {
+				throw new Error('Failed to initialize gradebook');
+			}
+			await fetchGradeBook();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'An error occurred');
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	if (loading) {
+		return <Spinner />;
+	}
+
+	if (error) {
+		return (
+			<Card className="p-4">
+				<p className="text-red-500">{error}</p>
+				<Button onClick={initializeGradeBook}>Initialize Gradebook</Button>
+			</Card>
+		);
+	}
+
+	if (!gradeBook) {
+		return (
+			<Card className="p-4">
+				<p>No gradebook found for this class.</p>
+				<Button onClick={initializeGradeBook}>Initialize Gradebook</Button>
+			</Card>
+		);
 	}
 
 	return (
-		<div className="space-y-4">
-			<Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
-				<TabsList>
-					<TabsTrigger value="overview">Overview</TabsTrigger>
-					<TabsTrigger value="activities">Activities</TabsTrigger>
-					<TabsTrigger value="grades">Grades</TabsTrigger>
-				</TabsList>
-				<TabsContent value="overview">
-					<GradebookOverview data={overviewData} />
-				</TabsContent>
-				<TabsContent value="activities">
-					{activities?.map(activity => (
-						<div key={activity.id} className="mb-4">
-							<h3>{activity.title}</h3>
-							<p>Submissions: {activity.submissions?.length || 0}</p>
-						</div>
-					))}
-				</TabsContent>
-				<TabsContent value="grades">
-					<StudentGrades grades={gradesData?.studentGrades} />
-				</TabsContent>
-			</Tabs>
-		</div>
+		<Card className="p-4">
+			<h2 className="text-2xl font-bold mb-4">Gradebook</h2>
+			<div className="overflow-x-auto">
+				<Table>
+					<thead>
+						<tr>
+							<th>Subject</th>
+							<th>Term Grades</th>
+							<th>Assessment Period Grades</th>
+							<th>Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{gradeBook.subjectRecords.map((record) => (
+							<tr key={record.id}>
+								<td>{record.subjectId}</td>
+								<td>{JSON.stringify(record.termGrades)}</td>
+								<td>{JSON.stringify(record.assessmentPeriodGrades)}</td>
+								<td>
+									<Button variant="outline" size="sm">
+										Edit
+									</Button>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</Table>
+			</div>
+		</Card>
 	);
 };
