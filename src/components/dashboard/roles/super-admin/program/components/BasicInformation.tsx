@@ -3,15 +3,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Status } from "@prisma/client";
-import { ProgramFormData, Calendar, Coordinator } from "@/types/program";
+import { ProgramFormData } from "@/types/program";
 
 interface BasicInformationProps {
 	formData: ProgramFormData;
-	calendars: Calendar[];
-	coordinators: Coordinator[];
+	calendars: any[];
+	coordinators: any[];
 	onFormDataChange: (newData: Partial<ProgramFormData>) => void;
 }
-
 
 export const BasicInformation = ({ formData, calendars, coordinators, onFormDataChange }: BasicInformationProps) => {
 	return (
