@@ -1,7 +1,13 @@
-import { PrismaClient, AssessmentSystemType } from '@prisma/client';
+import { PrismaClient, AssessmentSystemType, Prisma } from '@prisma/client';
 import { AssessmentService } from './AssessmentService';
 import { TermManagementService } from './TermManagementService';
 import { SubjectGradeManager } from './SubjectGradeManager';
+
+interface CreateClassInput {
+	name: string;
+	classGroupId: string;
+	capacity: number;
+}
 
 interface CumulativeGrade {
 	gpa: number;
@@ -9,6 +15,8 @@ interface CumulativeGrade {
 	earnedCredits: number;
 	subjectGrades: Record<string, SubjectTermGrade>;
 }
+
+type PrismaTransaction = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use">;
 
 export class GradeBookService {
 	private subjectGradeManager: SubjectGradeManager;
@@ -43,9 +51,181 @@ export class GradeBookService {
 		if (!classData) throw new Error('Class not found');
 
 		const assessmentSystem = await this.resolveAssessmentSystem(classData);
+		const termStructure = classData.classGroup.program.termStructures[0]; // Get default term structure
+
+		if (!termStructure) {
+			throw new Error('No term structure found for program');
+		}
+		
+		// Create grade book with subject records and term structure
+		await this.db.gradeBook.create({
+			data: {
+				classId,
+				assessmentSystemId: assessmentSystem.id,
+				termStructureId: termStructure.id,
+				subjectRecords: {
+					create: classData.classGroup.subjects.map(subject => ({
+						subjectId: subject.id,
+						termGrades: {},
+						assessmentPeriodGrades: {}
+					}))
+				}
+			}
+		});
+
+		// Update class with term structure
+		await this.db.class.update({
+			where: { id: classId },
+			data: { termStructureId: termStructure.id }
+		});
+	}
+
+	async createClassWithInheritance(classData: CreateClassInput): Promise<any> {
+		// Start transaction for atomic operations
+		return await this.db.$transaction(async (tx) => {
+			// 1. Create class with inherited class group settings
+			const newClass = await tx.class.create({
+				data: {
+					name: classData.name,
+					classGroupId: classData.classGroupId,
+					capacity: classData.capacity,
+					status: 'ACTIVE'
+				}
+			});
+
+			// 2. Inherit term management settings
+			const termSettings = await this.termService.inheritClassGroupTerms(
+				classData.classGroupId,
+				newClass.id
+			);
+
+			// Update class with term structure
+			await tx.class.update({
+				where: { id: newClass.id },
+				data: { termStructureId: termSettings.id }
+			});
+
+			// 3. Inherit assessment system
+			const assessmentSystem = await this.resolveAndInheritAssessmentSystem(
+				classData.classGroupId,
+				newClass.id,
+				tx
+			);
+
+			// 4. Initialize grade book with inherited settings
+			const gradeBook = await tx.gradeBook.create({
+				data: {
+					classId: newClass.id,
+					assessmentSystemId: assessmentSystem.id,
+					termStructureId: termSettings.id
+				}
+			});
+
+			// 5. Inherit and create subject grade records
+			await this.initializeSubjectGradeRecords(
+				tx,
+				gradeBook.id,
+				classData.classGroupId
+			);
+
+			return newClass;
+		});
+	}
+
+	private async initializeSubjectGradeRecords(
+		tx: PrismaTransaction,
+		gradeBookId: string,
+		classGroupId: string
+	): Promise<void> {
+		// Get subjects from class group
+		const classGroup = await tx.classGroup.findUnique({
+			where: { id: classGroupId },
+			include: {
+				subjects: true,
+			},
+		});
+
+		if (!classGroup) {
+			throw new Error(`ClassGroup with id ${classGroupId} not found`);
+		}
+
+		// Create subject grade records
+		await tx.subjectGradeRecord.createMany({
+			data: classGroup.subjects.map(subject => ({
+				gradeBookId,
+				subjectId: subject.id,
+				termGrades: {},
+				assessmentPeriodGrades: {}
+			}))
+		});
+	}
+
+	private async resolveAndInheritAssessmentSystem(
+		classGroupId: string,
+		classId: string,
+		tx: PrismaTransaction
+	): Promise<any> {
+		const classGroup = await this.db.classGroup.findUnique({
+			where: { id: classGroupId },
+			include: {
+				program: {
+					include: {
+						assessmentSystem: true
+					}
+				},
+				assessmentSettings: true
+			}
+		});
+
+		if (!classGroup) {
+			throw new Error(`ClassGroup with id ${classGroupId} not found`);
+		}
+
+		// Inherit from program's assessment system
+		const baseAssessmentSystem = classGroup.program.assessmentSystem;
+
+		if (!baseAssessmentSystem) {
+			throw new Error(`AssessmentSystem not found for program of ClassGroup ${classGroupId}`);
+		}
+
+		// Check for class group customizations
+		const classGroupAssessmentSettings = classGroup.assessmentSettings.find(setting => setting.assessmentSystemId === baseAssessmentSystem.id);
+
+		// Apply customizations if they exist
+		const finalAssessmentSystem = classGroupAssessmentSettings?.isCustomized
+			? { ...baseAssessmentSystem, ...classGroupAssessmentSettings.customSettings }
+			: baseAssessmentSystem;
+
+		return finalAssessmentSystem;
+	}
+
+	private async initializeGradeBookWithTransaction(
+		tx: Prisma.TransactionClient,
+		classId: string
+	): Promise<void> {
+		const classData = await tx.class.findUnique({
+			where: { id: classId },
+			include: {
+				classGroup: {
+					include: {
+						program: {
+							include: {
+								assessmentSystem: true,
+								termStructures: true
+							}
+						},
+						subjects: true
+					}
+				}
+			}
+		});
+
+		if (!classData) throw new Error('Class not found');
+
+		const assessmentSystem = await this.resolveAssessmentSystemWithTransaction(tx, classData);
 		
 		// Create grade book with subject records
-		await this.db.gradeBook.create({
+		await tx.gradeBook.create({
 			data: {
 				classId,
 				assessmentSystemId: assessmentSystem.id,
@@ -89,6 +269,40 @@ export class GradeBookService {
 
 		return finalSystem;
 	}
+
+	private async resolveAssessmentSystemWithTransaction(
+		tx: Prisma.TransactionClient,
+		classData: any
+	) {
+		if (!classData?.classGroup?.program) {
+			throw new Error('Invalid class data structure');
+		}
+
+		const { program, classGroup } = classData.classGroup;
+		
+		// Start with program's assessment system
+		const assessmentSystem = program.assessmentSystem;
+		
+		// Check for class group customizations
+		const classGroupSettings = await tx.classGroupAssessmentSettings.findFirst({
+			where: { 
+				classGroupId: classGroup.id,
+				assessmentSystemId: assessmentSystem.id
+			}
+		});
+
+		// Apply class group customizations if they exist
+		const finalSystem = classGroupSettings?.isCustomized ? 
+			{ ...assessmentSystem, ...classGroupSettings.customSettings } : 
+			assessmentSystem;
+
+		if (!finalSystem) {
+			throw new Error('No assessment system found in inheritance chain');
+		}
+
+		return finalSystem;
+	}
+
 
 	async calculateCumulativeGrade(
 		gradeBookId: string,

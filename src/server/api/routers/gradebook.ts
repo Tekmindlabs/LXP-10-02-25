@@ -3,10 +3,14 @@ import { createTRPCRouter, permissionProtectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { Permissions } from "@/utils/permissions";
 import { 
-	ActivitySubmissionStatus,
+	ActivitySubmission,
 	ActivityConfiguration,
-	ActivityGradingType
-} from "@/types/class-activity";
+	ActivityGradingType,
+	ClassActivity
+} from "@prisma/client";
+import { GradeBookService } from "@/server/services/GradeBookService";
+import { AssessmentService } from "@/server/services/AssessmentService";
+import { TermManagementService } from "@/server/services/TermManagementService";
 import { SubjectGradeManager } from "@/server/services/SubjectGradeManager";
 
 interface GradeData {
@@ -15,10 +19,10 @@ interface GradeData {
 	feedback?: string | null;
 	gradedBy: string;
 	gradedAt: Date;
-	status: ActivitySubmissionStatus;
+	status: string;
 	content: any;
 	isPassing: boolean;
-	gradingType: ActivityGradingType;
+	gradingType: string;
 }
 
 export const gradebookRouter = createTRPCRouter({
@@ -53,8 +57,8 @@ export const gradebookRouter = createTRPCRouter({
 				let lowestGrade = 100;
 				const gradeDistribution = { A: 0, B: 0, C: 0, D: 0, F: 0 };
 
-				activities.forEach(activity => {
-					activity.submissions.forEach(submission => {
+				activities.forEach((activity: ClassActivity) => {
+					activity.submissions.forEach((submission: ActivitySubmission) => {
 						if (submission.obtainedMarks && submission.totalMarks) {
 							const grade = (submission.obtainedMarks / submission.totalMarks) * 100;
 							totalGrades += grade;
@@ -70,7 +74,8 @@ export const gradebookRouter = createTRPCRouter({
 					});
 				});
 
-				const totalSubmissions = activities.reduce((acc, act) => acc + act.submissions.length, 0);
+				const totalSubmissions = activities.reduce((acc: number, act: ClassActivity) => 
+					acc + act.submissions.length, 0);
 				const classAverage = totalSubmissions > 0 ? totalGrades / totalSubmissions : 0;
 
 				return {
@@ -116,16 +121,24 @@ export const gradebookRouter = createTRPCRouter({
 					}
 				});
 
-				const studentGrades = students.map(student => {
-					const grades = student.user.submissions.map(submission => ({
+				const studentGrades = students.map((student) => {
+					const grades = student.user.submissions.map((submission: ActivitySubmission & {
+						activity: { id: string; title: string }
+					}) => ({
 						activityId: submission.activity.id,
 						activityName: submission.activity.title,
 						grade: submission.obtainedMarks ?? 0,
 						totalPoints: submission.totalMarks ?? 0
 					}));
 
-					const totalPoints = grades.reduce((acc: number, grade) => acc + grade.grade, 0);
-					const maxPoints = grades.reduce((acc: number, grade) => acc + grade.totalPoints, 0);
+					const totalPoints = grades.reduce((acc: number, grade: {
+						grade: number;
+						totalPoints: number;
+					}) => acc + grade.grade, 0);
+					const maxPoints = grades.reduce((acc: number, grade: {
+						grade: number;
+						totalPoints: number;
+					}) => acc + grade.totalPoints, 0);
 					const overallGrade = maxPoints > 0 ? (totalPoints / maxPoints) * 100 : 0;
 
 					return {
@@ -155,53 +168,92 @@ export const gradebookRouter = createTRPCRouter({
 			feedback: z.string().optional(),
 		}))
 		.mutation(async ({ ctx, input }) => {
-			const activity = await ctx.prisma.classActivity.findUnique({
-				where: { id: input.activityId }
-			});
-
-			if (!activity) {
-				throw new TRPCError({
-					code: 'NOT_FOUND',
-					message: 'Activity not found',
+			try {
+				const activity = await ctx.prisma.classActivity.findUnique({
+					where: { id: input.activityId },
+					include: {
+						class: {
+							include: {
+								gradeBook: {
+									include: {
+										assessmentSystem: true
+									}
+								}
+							}
+						}
+					}
 				});
-			}
 
-			const config = activity.configuration as unknown as ActivityConfiguration;
-			if (input.obtainedMarks > config.totalMarks) {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message: 'Obtained marks cannot exceed total marks',
-				});
-			}
+				if (!activity) {
+					throw new TRPCError({
+						code: 'NOT_FOUND',
+						message: 'Activity not found',
+					});
+				}
 
-			const isPassing = input.obtainedMarks >= config.passingMarks;
+				const config = activity.configuration as ActivityConfiguration;
+				if (input.obtainedMarks > config.totalMarks) {
+					throw new TRPCError({
+						code: 'BAD_REQUEST',
+						message: 'Obtained marks cannot exceed total marks',
+					});
+				}
 
-			const submissionData: GradeData = {
-				obtainedMarks: input.obtainedMarks,
-				totalMarks: config.totalMarks,
-				feedback: input.feedback,
-				gradedBy: ctx.session.user.id,
-				gradedAt: new Date(),
-				status: ActivitySubmissionStatus.GRADED,
-				content: {},
-				isPassing,
-				gradingType: config.gradingType
-			};
+				const isPassing = input.obtainedMarks >= config.passingMarks;
 
-			return ctx.prisma.activitySubmission.upsert({
-				where: {
-					activityId_studentId: {
+				const submissionData: GradeData = {
+					obtainedMarks: input.obtainedMarks,
+					totalMarks: config.totalMarks,
+					feedback: input.feedback,
+					gradedBy: ctx.session.user.id,
+					gradedAt: new Date(),
+					status: 'GRADED',
+					content: {},
+					isPassing,
+					gradingType: config.gradingType
+				};
+
+				const assessmentService = new AssessmentService(ctx.prisma);
+				const termService = new TermManagementService(ctx.prisma);
+				const gradeBookService = new GradeBookService(
+					ctx.prisma,
+					assessmentService,
+					termService
+				);
+
+				// Update grade and recalculate
+				const submission = await ctx.prisma.activitySubmission.upsert({
+					where: {
+						activityId_studentId: {
+							activityId: input.activityId,
+							studentId: input.studentId,
+						}
+					},
+					update: submissionData,
+					create: {
 						activityId: input.activityId,
 						studentId: input.studentId,
-					}
-				},
-				update: submissionData,
-				create: {
-					activityId: input.activityId,
-					studentId: input.studentId,
-					...submissionData
-				},
-			});
+						...submissionData
+					},
+				});
+
+				// Recalculate subject grades if needed
+				if (activity.class?.gradeBook) {
+					await gradeBookService.calculateSubjectGrade(
+						activity.class.gradeBook.id,
+						activity.subjectId,
+						activity.class.gradeBook.assessmentSystem.id
+					);
+				}
+
+				return submission;
+			} catch (error) {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Failed to grade activity',
+					cause: error
+				});
+			}
 		}),
 
 	getSubjectGrades: permissionProtectedProcedure(Permissions.GRADEBOOK_VIEW)
@@ -212,10 +264,12 @@ export const gradebookRouter = createTRPCRouter({
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
+				const assessmentService = new AssessmentService(ctx.prisma);
+				const termService = new TermManagementService(ctx.prisma);
 				const gradeBookService = new GradeBookService(
 					ctx.prisma,
-					ctx.assessmentService,
-					ctx.termService
+					assessmentService,
+					termService
 				);
 
 				const subjectGrade = await gradeBookService.calculateSubjectGrade(
@@ -270,10 +324,12 @@ export const gradebookRouter = createTRPCRouter({
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
+				const assessmentService = new AssessmentService(ctx.prisma);
+				const termService = new TermManagementService(ctx.prisma);
 				const gradeBookService = new GradeBookService(
 					ctx.prisma,
-					ctx.assessmentService,
-					ctx.termService
+					assessmentService,
+					termService
 				);
 
 				const cumulativeGrade = await gradeBookService.calculateCumulativeGrade(
@@ -296,7 +352,8 @@ export const gradebookRouter = createTRPCRouter({
 		.input(z.object({ 
 			subjectId: z.string(),
 			periodId: z.string(),
-			studentId: z.string()
+			studentId: z.string(),
+			assessmentSystemId: z.string()
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
@@ -305,7 +362,8 @@ export const gradebookRouter = createTRPCRouter({
 				const periodGrade = await subjectGradeManager.calculateAssessmentPeriodGrade(
 					input.subjectId,
 					input.periodId,
-					input.studentId
+					input.studentId,
+					input.assessmentSystemId
 				);
 
 				return periodGrade;

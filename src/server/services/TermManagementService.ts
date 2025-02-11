@@ -355,4 +355,69 @@ async createClassCalendar(classId: string) {
 			)
 		);
 	}
+
+	async inheritClassGroupTerms(
+		classGroupId: string,
+		classId: string
+	): Promise<any> {
+		const classGroup = await this.db.classGroup.findUnique({
+			where: { id: classGroupId },
+			include: {
+				program: {
+					include: {
+						termStructures: {
+							include: {
+								academicTerms: {
+									include: {
+										assessmentPeriods: true,
+										term: true
+									}
+								}
+							}
+						}
+					}
+				},
+				termSettings: {
+					include: {
+						programTerm: true
+					}
+				}
+			}
+		});
+
+		if (!classGroup) {
+			throw new Error(`ClassGroup with id ${classGroupId} not found`);
+		}
+
+		// Get the active term structure from class group settings or program default
+		const termSettings = classGroup.termSettings[0];
+		const programTermStructure = termSettings?.programTerm || classGroup.program.termStructures[0];
+
+		if (!programTermStructure) {
+			throw new Error('No term structure found for class group');
+		}
+
+		// Check for customizations in class group term settings
+		const customSettings = termSettings?.customSettings ? 
+			JSON.parse(termSettings.customSettings as string) as CustomSettings : 
+			undefined;
+
+		// If there are customizations, create a new term structure for the class
+		if (customSettings?.terms) {
+			// Apply customizations and return the modified term structure
+			const customizedTerms = this.mergeTermSettings(
+				programTermStructure.academicTerms as unknown as AcademicTerm[],
+				customSettings
+			);
+
+			// Return the term structure with customizations
+			return {
+				...programTermStructure,
+				academicTerms: customizedTerms
+			};
+		}
+
+		// If no customizations, return the program term structure as is
+		return programTermStructure;
+	}
 }

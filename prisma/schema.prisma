@@ -339,6 +339,8 @@ model Class {
   timetables   Timetable[]
   attendance   Attendance[]
   gradeBook    GradeBook?
+  termStructure ProgramTermStructure? @relation(fields: [termStructureId], references: [id])
+  termStructureId String?
   status       Status           @default(ACTIVE)
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
@@ -550,6 +552,8 @@ model GradeBook {
   class           Class    @relation(fields: [classId], references: [id])
   assessmentSystem AssessmentSystem @relation(fields: [assessmentSystemId], references: [id])
   assessmentSystemId String
+  termStructure    ProgramTermStructure @relation(fields: [termStructureId], references: [id])
+  termStructureId  String
   subjectRecords  SubjectGradeRecord[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1302,6 +1306,8 @@ model ProgramTermStructure {
   status        Status    @default(ACTIVE)
   academicTerms AcademicTerm[]
   termSettings  ClassGroupTermSettings[]
+  classes       Class[]
+  gradeBooks    GradeBook[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

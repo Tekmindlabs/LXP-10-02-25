@@ -1,6 +1,12 @@
 import { PrismaClient, AssessmentSystemType, ActivitySubmission, MarkingScheme, Rubric, AssessmentSystem } from '@prisma/client';
 import { AssessmentService } from './AssessmentService';
 
+interface InitializeGradeOptions {
+	termId: string;
+	assessmentPeriods: any[];
+	assessmentSystemId: string;
+}
+
 interface AssessmentPeriodGrade {
 	periodId: string;
 	obtainedMarks: number;
@@ -150,13 +156,77 @@ export class SubjectGradeManager {
 		};
 	}
 
+	async initializeSubjectGrades(
+		gradeBookId: string,
+		subject: any,
+		termStructure: any
+	): Promise<void> {
+		const assessmentPeriods = await this.getAssessmentPeriods(termStructure);
+		
+		await this.db.subjectGradeRecord.create({
+			data: {
+				gradeBookId,
+				subjectId: subject.id,
+				termGrades: this.initializeTermGrades(termStructure.academicTerms),
+				assessmentPeriodGrades: this.initializeAssessmentPeriodGrades(assessmentPeriods)
+			}
+		});
+	}
+
+	private async getAssessmentPeriods(termStructure: any): Promise<any[]> {
+		return termStructure.academicTerms.flatMap((term: any) => term.assessmentPeriods);
+	}
+
+	private initializeTermGrades(terms: any[]): any {
+		return terms.reduce((acc, term) => ({
+			...acc,
+			[term.id]: {
+				totalMarks: 0,
+				obtainedMarks: 0,
+				percentage: 0,
+				grade: null,
+				periodGrades: {},
+				finalGrade: 0,
+				isPassing: false,
+				gradePoints: 0,
+				credits: 0
+			}
+		}), {});
+	}
+
+	private initializeAssessmentPeriodGrades(periods: any[]): any {
+		return periods.reduce((acc, period) => ({
+			...acc,
+			[period.id]: {
+				totalMarks: 0,
+				obtainedMarks: 0,
+				percentage: 0,
+				weight: period.weight,
+				isPassing: false,
+				gradePoints: 0
+			}
+		}), {});
+	}
+
 	async updateSubjectGradeRecord(
 		gradeBookId: string,
 		subjectId: string,
 		termId: string,
 		studentId: string
 	): Promise<void> {
-		const termGrade = await this.calculateSubjectTermGrade(subjectId, termId, studentId, gradeBookId);
+		const [termGrade, existingRecord] = await Promise.all([
+			this.calculateSubjectTermGrade(subjectId, termId, studentId, gradeBookId),
+			this.db.subjectGradeRecord.findUnique({
+				where: {
+					gradeBookId_subjectId: {
+						gradeBookId,
+						subjectId
+					}
+				}
+			})
+		]);
+		
+		const existingTermGrades = existingRecord?.termGrades || {};
 		
 		await this.db.subjectGradeRecord.upsert({
 			where: {
@@ -167,6 +237,7 @@ export class SubjectGradeManager {
 			},
 			update: {
 				termGrades: {
+					...existingTermGrades,
 					[termId]: termGrade
 				}
 			},
@@ -177,6 +248,25 @@ export class SubjectGradeManager {
 					[termId]: termGrade
 				},
 				assessmentPeriodGrades: {}
+			}
+		});
+
+		// Record grade history
+		await this.recordGradeHistory(studentId, subjectId, termGrade);
+	}
+
+	private async recordGradeHistory(
+		studentId: string,
+		subjectId: string,
+		termGrade: SubjectTermGrade
+	): Promise<void> {
+		await this.db.gradeHistory.create({
+			data: {
+				studentId,
+				subjectId,
+				gradeValue: termGrade.finalGrade,
+				modifiedBy: 'SYSTEM',
+				reason: 'Term grade calculation'
 			}
 		});
 	}
