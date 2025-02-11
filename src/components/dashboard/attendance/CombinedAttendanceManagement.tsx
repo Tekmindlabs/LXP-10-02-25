@@ -1,61 +1,27 @@
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { TRPCClientErrorBase } from '@trpc/client';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Calendar } from '@/components/ui/calendar';
 import { AttendanceTrackingMode } from '@/types/attendance';
 import type { RouterOutputs } from '@/utils/api';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { AttendanceStats } from './AttendanceStats';
 import { AttendanceDashboard } from './AttendanceDashboard';
-import { useSwipeable } from 'react-swipeable';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/utils/api';
-import { AttendanceStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
+import { AttendanceForm } from './components/AttendanceForm';
+import { QuickModeAttendance } from './components/QuickModeAttendance';
+import { DetailedModeAttendance } from './components/DetailedModeAttendance';
+import { AttendanceSettings } from './components/AttendanceSettings';
+import type { AttendanceRecord } from './types';
 
-interface ClassGroup {
-  id: string;
-  name: string;
-  description: string | null;
-  status: Status;
-  calendarId: string;
-  programId: string;
-  createdAt: Date;
-  updatedAt: Date;
-  classes: Array<{
-    id: string;
-    name: string;
-  }>;
-}
-
-interface Subject {
-  id: string;
-  name: string;
-  code: string;
-  classGroups?: ClassGroup[];
-}
-
-interface StudentWithUser {
-  id: string;
-  user: {
-    name: string | null;
-    email: string | null;
-  };
-}
-
-interface AttendanceRecord {
-  status: AttendanceStatus;
-  notes?: string;
-  subjectId?: string;
-}
 
 export const CombinedAttendanceManagement = () => {
-  const { data: session, status: sessionStatus } = useSession();
+  const { data: session } = useSession();
+
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedClass, setSelectedClass] = useState<string>("no-class-selected");
@@ -75,7 +41,7 @@ export const CombinedAttendanceManagement = () => {
   const filteredSubjects = useMemo(() => 
     subjects?.filter(subject => 
       subject.classGroups?.some(group => 
-        group.classes?.some((cls: { id: string; name: string; }) => cls.id === selectedClass)
+        group.classes?.some((cls: { id: string; name: string }) => cls.id === selectedClass)
       )
     ) ?? [],
     [subjects, selectedClass]
@@ -100,8 +66,9 @@ export const CombinedAttendanceManagement = () => {
     });
   }, [sessionStatus, userRoles, isAdmin, isSuperAdmin, isTeacher, hasAccessPermission]);
 
-  // Type definition for stats data
+  // Type definitions for API responses
   type StatsData = RouterOutputs['attendance']['getStats'];
+  type DashboardData = RouterOutputs['attendance']['getDashboardData'];
 
 
   // Modified class fetching query
@@ -197,27 +164,33 @@ export const CombinedAttendanceManagement = () => {
     }
 
     try {
-      const records = Array.from(attendanceData.entries()).map(([studentId, record]) => ({
+      const students = Array.from(attendanceData.entries()).map(([studentId, record]) => ({
         studentId,
-        classId: selectedClass,
-        date: selectedDate,
         status: record.status,
         notes: record.notes,
         ...(record.subjectId ? { subjectId: record.subjectId } : {})
       }));
 
+      await saveAttendanceMutation.mutateAsync({
+        date: selectedDate,
+        classId: selectedClass,
+        students,
+        ...(selectedSubject ? { subjectId: selectedSubject } : {})
+      });
 
-        // Optimistic update with proper typing
-        utils.attendance.getStats.setData(undefined, (old: StatsData | undefined) => ({
-        ...old,
-        todayStats: {
-          ...old?.todayStats,
-          present: records.filter(r => r.status === AttendanceStatus.PRESENT).length,
-          absent: records.filter(r => r.status === AttendanceStatus.ABSENT).length,
-        }
-        }));
-
-      await saveAttendanceMutation.mutateAsync({ records });
+      // Optimistic update with proper typing
+        utils.attendance.getStats.setData(undefined, (old: StatsData | undefined) => {
+        if (!old) return old;
+        return {
+          ...old,
+          todayStats: {
+          ...old.todayStats,
+          present: old.todayStats.present + students.filter(r => r.status === AttendanceStatus.PRESENT).length,
+          absent: old.todayStats.absent + students.filter(r => r.status === AttendanceStatus.ABSENT).length,
+          total: old.todayStats.total + students.length
+          }
+        };
+        });
 
       // Invalidate queries to refresh data
       await Promise.all([
@@ -286,12 +259,14 @@ export const CombinedAttendanceManagement = () => {
         ) : statsError ? (
           <ErrorMessage error={statsError} />
         ) : (
-          <AttendanceStats {...(statsData || {
-          todayStats: { present: 0, absent: 0, total: 0 },
-          weeklyPercentage: 0,
-          mostAbsentStudents: [],
-          lowAttendanceClasses: []
-          })} />
+            {statsData ? (
+              <AttendanceStats
+              todayStats={statsData.todayStats}
+              weeklyPercentage={statsData.weeklyPercentage}
+              mostAbsentStudents={statsData.mostAbsentStudents}
+              lowAttendanceClasses={statsData.lowAttendanceClasses}
+              />
+            ) : null}
         )}
 
       <Card className="mb-4">
@@ -315,10 +290,12 @@ export const CombinedAttendanceManagement = () => {
             ) : dashboardError ? (
               <ErrorMessage error={dashboardError} />
             ) : (
-              <AttendanceDashboard 
-              attendanceTrend={dashboardData?.attendanceTrend}
-              classAttendance={dashboardData?.classAttendance}
-              />
+                {dashboardData ? (
+                  <AttendanceDashboard
+                  attendanceTrend={dashboardData.attendanceTrend}
+                  classAttendance={dashboardData.classAttendance}
+                  />
+                ) : null}
             )}
             </TabsContent>
 

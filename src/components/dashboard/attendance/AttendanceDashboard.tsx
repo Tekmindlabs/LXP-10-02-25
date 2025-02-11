@@ -1,47 +1,30 @@
+import { AttendanceStatus } from '@prisma/client';
 import { Card, CardContent } from "@/components/ui/card";
 
 interface AttendanceDashboardProps {
-	attendanceTrend?: {
+	attendanceTrend?: Array<{
 		date: string;
 		percentage: number;
-	}[];
-	classAttendance?: {
+		breakdown: Record<AttendanceStatus, number>;
+	}>;
+	classAttendance?: Array<{
 		className: string;
 		present: number;
 		absent: number;
+		late: number;
+		excused: number;
 		percentage: number;
-		subjectAttendance?: Array<{
-			subjectName: string;
-			present: number;
-			absent: number;
-			percentage: number;
-		}>;
-	}[];
+	}>;
 }
 
 export function AttendanceDashboard({
 	attendanceTrend = [],
 	classAttendance = []
 }: AttendanceDashboardProps) {
-	const totalStudents = classAttendance.reduce((acc, curr) => acc + curr.present + curr.absent, 0);
-	const averageAttendance = classAttendance.reduce((acc, curr) => acc + curr.percentage, 0) / (classAttendance.length || 1);
-
-	// Calculate subject-wise statistics
-	const subjectStats = classAttendance.reduce((acc, cls) => {
-		cls.subjectAttendance?.forEach(subject => {
-			if (!acc[subject.subjectName]) {
-				acc[subject.subjectName] = {
-					present: 0,
-					absent: 0,
-					total: 0
-				};
-			}
-			acc[subject.subjectName].present += subject.present;
-			acc[subject.subjectName].absent += subject.absent;
-			acc[subject.subjectName].total += subject.present + subject.absent;
-		});
-		return acc;
-	}, {} as Record<string, { present: number; absent: number; total: number; }>);
+	const totalStudents = classAttendance.reduce((acc, curr) => 
+		acc + curr.present + curr.absent + curr.late + curr.excused, 0);
+	const averageAttendance = classAttendance.reduce((acc, curr) => acc + curr.percentage, 0) / 
+		(classAttendance.length || 1);
 
 	return (
 		<div className="space-y-6">
@@ -72,20 +55,20 @@ export function AttendanceDashboard({
 				</Card>
 			</div>
 
-			{Object.keys(subjectStats).length > 0 && (
+			{attendanceTrend.length > 0 && (
 				<Card>
 					<CardContent className="p-6">
-						<h3 className="text-lg font-semibold mb-4">Subject-wise Overview</h3>
+						<h3 className="text-lg font-semibold mb-4">Attendance Breakdown</h3>
 						<div className="space-y-4">
-							{Object.entries(subjectStats).map(([subject, stats]) => (
-								<div key={subject} className="flex justify-between items-center">
-									<span className="font-medium">{subject}</span>
+							{attendanceTrend.map((day) => (
+								<div key={day.date} className="flex justify-between items-center">
+									<span className="font-medium">{day.date}</span>
 									<div className="flex gap-4">
-										<span className="text-green-600">Present: {stats.present}</span>
-										<span className="text-red-600">Absent: {stats.absent}</span>
-										<span className="font-medium">
-											{((stats.present / stats.total) * 100).toFixed(1)}%
-										</span>
+										<span className="text-green-600">P: {day.breakdown.PRESENT}</span>
+										<span className="text-red-600">A: {day.breakdown.ABSENT}</span>
+										<span className="text-yellow-600">L: {day.breakdown.LATE}</span>
+										<span className="text-blue-600">E: {day.breakdown.EXCUSED}</span>
+										<span className="font-medium">{day.percentage.toFixed(1)}%</span>
 									</div>
 								</div>
 							))}
@@ -96,3 +79,4 @@ export function AttendanceDashboard({
 		</div>
 	);
 }
+

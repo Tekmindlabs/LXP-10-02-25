@@ -441,6 +441,7 @@ model Attendance {
   date      DateTime
   status    AttendanceStatus
   notes     String?
+  audits    AttendanceAudit[]
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
@@ -448,10 +449,12 @@ model Attendance {
   @@index([classId])
   @@index([subjectId])
   @@index([date])
+  @@map("attendance")
 }
 
 model AttendanceAudit {
   id           String           @id @default(cuid())
+  attendance   Attendance       @relation(fields: [attendanceId], references: [id])
   attendanceId String
   modifiedBy   String
   modifiedAt   DateTime

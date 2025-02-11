@@ -3,51 +3,18 @@ import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { AttendanceStatus, Prisma } from "@prisma/client";
 import { 
     AttendanceTrackingMode, 
-    attendanceSchema, 
     bulkAttendanceSchema,
     type CacheConfig,
-    type CacheEntry
+    type CacheEntry,
+    type AttendanceStatsData,
+    type AttendanceDashboardData
 } from '@/types/attendance';
 import { startOfDay, endOfDay, subDays, startOfWeek, format, eachDayOfInterval } from "date-fns";
 import { TRPCError } from "@trpc/server";
 
-// Enhanced cache implementation
-const CACHE_CONFIG: CacheConfig = {
-    enabled: true,
-    duration: 5 * 60 * 1000, // 5 minutes
-    keys: {
-        stats: 'stats',
-        dashboard: 'dashboard',
-        reports: 'reports'
-    }
-};
+// Cache configuration
+const statsCache = new Map<string, CacheEntry<AttendanceStatsData | AttendanceDashboardData>>();
 
-const cache = new Map<string, CacheEntry<any>>();
-
-function getCacheKey(baseKey: string, userId: string): string {
-    return `${baseKey}_${userId}`;
-}
-
-function setCacheEntry<T>(key: string, data: T): void {
-    if (!CACHE_CONFIG.enabled) return;
-    
-    cache.set(key, {
-        data,
-        timestamp: Date.now(),
-        expiresAt: Date.now() + CACHE_CONFIG.duration
-    });
-}
-
-function getCacheEntry<T>(key: string): T | null {
-    if (!CACHE_CONFIG.enabled) return null;
-    
-    const entry = cache.get(key);
-    if (!entry || Date.now() > entry.expiresAt) {
-        cache.delete(key);
-        return null;
-    }
-    return entry.data;
-}
 
 export const attendanceRouter = createTRPCRouter({
     getByDateAndClass: protectedProcedure
@@ -96,11 +63,12 @@ export const attendanceRouter = createTRPCRouter({
             
             for (const student of students) {
               // Get existing record if any
-              const existing = await tx.attendance.findUnique({
+              const existing = await tx.attendance.findFirst({
                 where: {
-                  studentId_date: {
-                    studentId: student.studentId,
-                    date: date,
+                  studentId: student.studentId,
+                  date: {
+                    gte: startOfDay(date),
+                    lte: endOfDay(date),
                   }
                 }
               });
@@ -110,32 +78,37 @@ export const attendanceRouter = createTRPCRouter({
                 where: {
                   studentId_date: {
                     studentId: student.studentId,
-                    date: date,
+                    date: date
                   }
                 },
                 update: {
                   status: student.status,
-                  notes: student.notes,
+                  notes: student.notes
                 },
                 create: {
                   studentId: student.studentId,
                   classId: classId,
                   date: date,
                   status: student.status,
-                  notes: student.notes,
-                },
+                  notes: student.notes
+                }
               });
 
               // Create audit log if status changed
               if (existing && existing.status !== student.status) {
-                await tx.attendanceAudit.create({
+                await tx.attendance.update({
+                  where: { id: result.id },
                   data: {
-                    attendanceId: result.id,
-                    modifiedBy: ctx.session.user.id,
-                    modifiedAt: new Date(),
-                    oldValue: existing.status,
-                    newValue: student.status,
-                    reason: student.notes
+                    AttendanceAudit: {
+                      create: {
+                        modifiedBy: ctx.session.user.id,
+                        modifiedAt: new Date(),
+                        oldValue: existing.status,
+                        newValue: student.status,
+                        reason: student.notes,
+                        metadata: { source: 'batch_update' }
+                      }
+                    }
                   }
                 });
               }
@@ -260,34 +233,31 @@ export const attendanceRouter = createTRPCRouter({
       }),
 
     getByDateAndSubject: protectedProcedure
-        .input(z.object({
-            date: z.date(),
-            subjectId: z.string(),
-        }))
-        .query(async ({ ctx, input }) => {
-            const { date, subjectId } = input;
-            return ctx.prisma.attendance.findMany({
-                where: {
-                    date: {
-                        gte: startOfDay(date),
-                        lte: endOfDay(date),
-                    },
-                    AND: {
-                        subject: {
-                            id: subjectId
-                        }
-                    }
-                },
-                include: {
-                    student: {
-                        include: {
-                            user: true
-                        }
-                    },
-                    class: true,
-                },
-            });
-        }),
+      .input(z.object({
+        date: z.date(),
+        subjectId: z.string()
+      }))
+      .query(async ({ ctx, input }) => {
+        const { date, subjectId } = input;
+        return ctx.prisma.attendance.findMany({
+          where: {
+            date: {
+              gte: startOfDay(date),
+              lte: endOfDay(date)
+            },
+            subjectId
+          },
+          include: {
+            student: {
+              include: {
+                user: true
+              }
+            },
+            class: true
+          }
+        });
+      }),
+
 
     getStatsBySubject: protectedProcedure
         .input(z.object({
@@ -384,13 +354,13 @@ export const attendanceRouter = createTRPCRouter({
             };
         }),
 
-    getStats: protectedProcedure.query(async ({ ctx }) => {
+    getStats: protectedProcedure.query(async ({ ctx }): Promise<AttendanceStatsData> => {
     try {
         const cacheKey = `stats_${ctx.session.user.id}`;
-        const cached = statsCache.get(cacheKey);
+        const cached = getCacheEntry<AttendanceStatsData>(cacheKey);
         
-        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-            return cached.data;
+        if (cached) {
+            return cached;
         }
 
         const today = new Date();
@@ -454,11 +424,14 @@ export const attendanceRouter = createTRPCRouter({
             })
         ]);
 
-        const result = {
+        const result: AttendanceStatsData = {
             todayStats: {
                 present: todayAttendance.find(a => a.status === 'PRESENT')?._count ?? 0,
                 absent: todayAttendance.find(a => a.status === 'ABSENT')?._count ?? 0,
-                total: todayAttendance.reduce((acc, curr) => acc + curr._count, 0)
+                late: todayAttendance.find(a => a.status === 'LATE')?._count ?? 0,
+                excused: todayAttendance.find(a => a.status === 'EXCUSED')?._count ?? 0,
+                total: todayAttendance.reduce((acc, curr) => acc + curr._count, 0),
+                percentage: 0
             },
             weeklyPercentage: weeklyAttendance.length > 0
                 ? (weeklyAttendance.filter(a => a.status === 'PRESENT').length * 100) / weeklyAttendance.length
@@ -469,9 +442,33 @@ export const attendanceRouter = createTRPCRouter({
                         where: { id: record.studentId },
                         include: { user: true }
                     });
+
+                    // Calculate consecutive absences
+                    const consecutiveAbsences = await ctx.prisma.attendance.count({
+                        where: {
+                            studentId: record.studentId,
+                            status: 'ABSENT',
+                            date: {
+                                gte: thirtyDaysAgo
+                            }
+                        }
+                    });
+
+                    // Get last attendance
+                    const lastAttendance = await ctx.prisma.attendance.findFirst({
+                        where: {
+                            studentId: record.studentId
+                        },
+                        orderBy: {
+                            date: 'desc'
+                        }
+                    });
+
                     return {
                         name: student?.user.name ?? 'Unknown',
-                        absences: record._count?.studentId ?? 0
+                        absences: record._count?.studentId ?? 0,
+                        consecutiveAbsences,
+                        lastAttendance: lastAttendance?.date
                     };
                 })
             ),
@@ -483,7 +480,11 @@ export const attendanceRouter = createTRPCRouter({
             })).sort((a, b) => a.percentage - b.percentage)
         };
 
-        statsCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        statsCache.set(cacheKey, {
+          data: result,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + CACHE_DURATION
+        });
         return result;
     } catch (error) {
         throw new TRPCError({
@@ -496,13 +497,13 @@ export const attendanceRouter = createTRPCRouter({
 
 
 
-getDashboardData: protectedProcedure.query(async ({ ctx }) => {
+getDashboardData: protectedProcedure.query(async ({ ctx }): Promise<AttendanceDashboardData> => {
     try {
         const cacheKey = `dashboard_${ctx.session.user.id}`;
-        const cached = statsCache.get(cacheKey);
+        const cached = getCacheEntry<AttendanceDashboardData>(cacheKey);
         
-        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-            return cached.data;
+        if (cached) {
+            return cached;
         }
 
         const today = new Date();
@@ -541,31 +542,41 @@ getDashboardData: protectedProcedure.query(async ({ ctx }) => {
         const result = {
             attendanceTrend: await Promise.all(
                 attendanceByDate.map(async (record) => {
-                    const dayAttendance = await ctx.prisma.attendance.count({
-                        where: {
-                            date: record.date,
-                            status: 'PRESENT'
-                        }
+                    const dayAttendance = await ctx.prisma.attendance.groupBy({
+                        by: ['status'],
+                        where: { date: record.date },
+                        _count: true
                     });
+
                     return {
                         date: format(record.date, 'yyyy-MM-dd'),
-                        percentage: (dayAttendance * 100) / record._count._all
+                        percentage: (dayAttendance.find(a => a.status === 'PRESENT')?._count ?? 0) * 100 / record._count._all,
+                        breakdown: {
+                            PRESENT: dayAttendance.find(a => a.status === 'PRESENT')?._count ?? 0,
+                            ABSENT: dayAttendance.find(a => a.status === 'ABSENT')?._count ?? 0,
+                            LATE: dayAttendance.find(a => a.status === 'LATE')?._count ?? 0,
+                            EXCUSED: dayAttendance.find(a => a.status === 'EXCUSED')?._count ?? 0
+                        }
                     };
                 })
             ),
-            classAttendance: classAttendance.map(cls => {
-                const present = cls.attendance.filter(a => a.status === 'PRESENT').length;
-                const total = cls.attendance.length;
-                return {
-                    className: cls.name,
-                    present,
-                    absent: total - present,
-                    percentage: total > 0 ? (present * 100) / total : 0
-                };
-            })
+            classAttendance: classAttendance.map(cls => ({
+                className: cls.name,
+                present: cls.attendance.filter(a => a.status === 'PRESENT').length,
+                absent: cls.attendance.filter(a => a.status === 'ABSENT').length,
+                late: cls.attendance.filter(a => a.status === 'LATE').length,
+                excused: cls.attendance.filter(a => a.status === 'EXCUSED').length,
+                percentage: cls.attendance.length > 0 
+                    ? (cls.attendance.filter(a => a.status === 'PRESENT').length * 100) / cls.attendance.length 
+                    : 0
+            }))
         };
 
-        statsCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        statsCache.set(cacheKey, {
+          data: result,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + CACHE_DURATION
+        });
         return result;
     } catch (error) {
         throw new TRPCError({
