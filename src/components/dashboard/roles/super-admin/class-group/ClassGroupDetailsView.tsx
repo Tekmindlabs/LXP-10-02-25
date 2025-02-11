@@ -282,7 +282,7 @@ export const ClassGroupDetailsView = ({ classGroupId }: ClassGroupDetailsViewPro
 							<CardContent>
 								{validateAttendanceData(attendanceStats) ? (
 									<ResponsiveContainer width="100%" height={300}>
-										<LineChart data={attendanceStats?.trends}>
+										<LineChart data={attendanceStats?.trends || []}>
 											<CartesianGrid strokeDasharray="3 3" />
 											<XAxis dataKey="date" />
 											<YAxis />
@@ -310,7 +310,7 @@ export const ClassGroupDetailsView = ({ classGroupId }: ClassGroupDetailsViewPro
 								</CardHeader>
 								<CardContent>
 									<ResponsiveContainer width="100%" height={300}>
-										<LineChart data={attendanceStats.trends}>
+										<LineChart data={attendanceStats?.trends || []}>
 											<CartesianGrid strokeDasharray="3 3" />
 											<XAxis dataKey="date" />
 											<YAxis />

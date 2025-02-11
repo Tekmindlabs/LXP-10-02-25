@@ -2,7 +2,7 @@ import '@/app/globals.css'
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { headers } from "next/headers"
-import { Toaster } from "@/components/ui/toaster"
+import { ToasterProvider } from "@/components/providers/toaster-provider"
 import { ConsentBanner } from '@/components/gdpr/consent-banner'
 import { getServerAuthSession } from '@/server/auth'
 import { Providers } from './providers' // Import Providers instead of TRPCProvider
@@ -37,7 +37,7 @@ export default async function RootLayout({
         <Providers session={session} cookieHeader={cookieHeader}>
           {children}
           <ConsentBanner />
-          <Toaster />
+            <ToasterProvider />
           <div id="dialog-root" />
           </Providers>
       </body>
