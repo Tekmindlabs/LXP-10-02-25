@@ -1,5 +1,11 @@
 import { PrismaClient, Status, Prisma } from "@prisma/client";
 import type { AcademicTerm, TermAssessmentPeriod, TermType } from "@/types/terms";
+import type { CalendarEvent } from "@/types/calendar";
+
+interface CalendarSettings {
+	inheritFromProgram: boolean;
+	customEvents?: CalendarEvent[];
+}
 
 interface CustomTerm {
 	termId: string;
@@ -214,6 +220,102 @@ export class TermManagementService {
 		return updatedTerms;
 	});
 	}
+
+    async createClassGroupCalendar(classGroupId: string) {
+        const terms = await this.getClassGroupTerms(classGroupId);
+        const classGroup = await this.db.classGroup.findUnique({
+            where: { id: classGroupId },
+            include: { program: true }
+        });
+
+        if (!classGroup) throw new Error("Class group not found");
+
+        const calendarEvents = terms.map(term => ({
+            title: `${term.name} Term`,
+            description: `Academic term for ${classGroup.name}`,
+            startDate: term.startDate,
+            endDate: term.endDate,
+            level: 'class_group',
+            calendarId: classGroupId,
+            classGroupId: classGroupId,
+            programId: classGroup.programId,
+            status: 'ACTIVE' as const
+        }));
+
+        await this.db.calendarEvent.createMany({
+            data: calendarEvents
+        });
+
+        // Create assessment period events
+        const assessmentEvents = terms.flatMap(term => 
+            term.assessmentPeriods.map(period => ({
+                title: `${period.name} - ${term.name}`,
+                description: `Assessment period for ${term.name}`,
+                startDate: period.startDate,
+                endDate: period.endDate,
+                level: 'class_group',
+                calendarId: classGroupId,
+                classGroupId: classGroupId,
+                programId: classGroup.programId,
+                status: 'ACTIVE' as const
+            }))
+        );
+
+        await this.db.calendarEvent.createMany({
+            data: assessmentEvents
+        });
+
+        return [...calendarEvents, ...assessmentEvents];
+    }
+
+async createClassCalendar(classId: string) {
+	const classData = await this.db.class.findUnique({
+		where: { id: classId },
+		include: { 
+			classGroup: true
+		}
+	});
+
+	if (!classData) throw new Error("Class not found");
+
+	// Inherit events from class group
+	const classGroupEvents = await this.db.calendarEvent.findMany({
+		where: { classGroupId: classData.classGroupId }
+	});
+
+	const classEvents = classGroupEvents.map(event => ({
+		title: event.title,
+		description: event.description,
+		startDate: event.startDate,
+		endDate: event.endDate,
+		level: 'class' as const,
+		calendarId: classId,
+		classId: classId,
+		status: event.status,
+		programId: event.programId
+	}));
+
+	await this.db.calendarEvent.createMany({
+		data: classEvents
+	});
+
+	return classEvents;
+}
+
+
+    async updateCalendarEvents(entityId: string, entityType: 'class' | 'class_group', updates: CalendarEvent[]) {
+        const whereClause = entityType === 'class' 
+            ? { classId: entityId }
+            : { classGroupId: entityId };
+
+        await this.db.calendarEvent.deleteMany({
+            where: whereClause
+        });
+
+        return await this.db.calendarEvent.createMany({
+            data: updates
+        });
+    }
 
 	private async propagateTermUpdatesToClassGroups(programId: string, terms: AcademicTerm[]) {
 		const classGroups = await this.db.classGroup.findMany({

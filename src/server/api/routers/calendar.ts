@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { CalendarType, Status, Visibility } from "@prisma/client";
+import { TermManagementService } from "../../services/TermManagementService";
 
 const calendarSchema = z.object({
 	name: z.string(),
@@ -196,16 +197,75 @@ export const calendarRouter = createTRPCRouter({
 			description: z.string().optional(),
 			startDate: z.date(),
 			endDate: z.date(),
-			level: z.enum(['CALENDAR', 'PROGRAM', 'CLASS_GROUP', 'CLASS']),
-			entityId: z.string().optional(),
+			level: z.enum(['class', 'class_group']),
+			calendarId: z.string(),
+			classId: z.string().optional(),
+			classGroupId: z.string().optional(),
+			status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE')
 		}))
 		.mutation(async ({ ctx, input }) => {
 			return ctx.prisma.calendarEvent.create({
-				data: {
-					...input,
-					status: 'ACTIVE',
-					calendarId: ctx.session.user.id,
-				},
+				data: input
 			});
 		}),
+
+	getEvents: protectedProcedure
+		.input(z.object({
+			entityId: z.string(),
+			entityType: z.enum(['class', 'class_group'])
+		}))
+		.query(async ({ ctx, input }) => {
+			return ctx.prisma.calendarEvent.findMany({
+				where: {
+					[input.entityType === 'class' ? 'classId' : 'classGroupId']: input.entityId,
+					status: 'ACTIVE'
+				},
+				orderBy: { startDate: 'asc' }
+			});
+		}),
+
+	updateEvent: protectedProcedure
+		.input(z.object({
+			id: z.string(),
+			title: z.string().optional(),
+			description: z.string().optional(),
+			startDate: z.date().optional(),
+			endDate: z.date().optional(),
+			status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).optional()
+		}))
+		.mutation(async ({ ctx, input }) => {
+			const { id, ...data } = input;
+			return ctx.prisma.calendarEvent.update({
+				where: { id },
+				data
+			});
+		}),
+
+	deleteEvent: protectedProcedure
+		.input(z.object({
+			eventId: z.string()
+		}))
+		.mutation(async ({ ctx, input }) => {
+			return ctx.prisma.calendarEvent.delete({
+				where: { id: input.eventId }
+			});
+		}),
+
+	initializeClassGroupCalendar: protectedProcedure
+		.input(z.object({
+			classGroupId: z.string()
+		}))
+		.mutation(async ({ ctx, input }) => {
+			const termService = new TermManagementService(ctx.prisma);
+			return termService.createClassGroupCalendar(input.classGroupId);
+		}),
+
+	initializeClassCalendar: protectedProcedure
+		.input(z.object({
+			classId: z.string()
+		}))
+		.mutation(async ({ ctx, input }) => {
+			const termService = new TermManagementService(ctx.prisma);
+			return termService.createClassCalendar(input.classId);
+		})
 });

@@ -4,7 +4,7 @@ export interface CalendarEvent {
 	description?: string;
 	startDate: Date;
 	endDate: Date;
-	level: string;
+	level: 'class' | 'class_group';
 	calendarId: string;
 	programId?: string;
 	classGroupId?: string;
