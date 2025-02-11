@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { Status, AttendanceStatus } from "@prisma/client";
+import { Status } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
+import { SubjectSyncService } from "@/server/services/SubjectSyncService";
+
 
 
 
@@ -827,10 +829,10 @@ export const classGroupRouter = createTRPCRouter({
 										lte: endDate
 									}
 								}
-							}
+							},
+							students: true
 						}
-					},
-					subjects: true
+					}
 				}
 			});
 
@@ -857,51 +859,17 @@ export const classGroupRouter = createTRPCRouter({
 				return acc;
 			}, {} as Record<string, { present: number; total: number; }>);
 
-			// Calculate subject-wise attendance
-			const subjectWise = attendance.reduce((acc, record) => {
-				const subjects = record.class.subjects;
-				subjects.forEach(subject => {
-					if (!acc[subject.id]) {
-						acc[subject.id] = {
-							subjectId: subject.id,
-							subjectName: subject.name,
-							present: 0,
-							absent: 0,
-							total: 0,
-						};
-					}
-					
-					acc[subject.id].total += 1;
-					if (record.status === 'PRESENT') {
-						acc[subject.id].present += 1;
-					} else if (record.status === 'ABSENT') {
-						acc[subject.id].absent += 1;
-					}
-				});
-				
-				return acc;
-			}, {} as Record<string, {
-				subjectId: string;
-				subjectName: string;
-				present: number;
-				absent: number;
-				total: number;
-			}>);
-
 			const trends = Object.entries(attendanceByDate).map(([date, stats]) => ({
 				date,
 				attendanceRate: (stats.present / stats.total) * 100
 			}));
 
-			const subjectWiseStats = Object.values(subjectWise).map(stats => ({
-				...stats,
-				attendanceRate: (stats.present / stats.total) * 100
-			}));
-
 			return {
 				trends,
-				averageAttendance: trends.reduce((acc, day) => acc + day.attendanceRate, 0) / trends.length,
-				subjectWise: subjectWiseStats
+				averageAttendance: trends.length > 0 
+					? trends.reduce((acc, day) => acc + day.attendanceRate, 0) / trends.length 
+					: 0
 			};
 		}),
+
 });

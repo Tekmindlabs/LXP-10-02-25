@@ -454,7 +454,7 @@ model Attendance {
 
 model AttendanceAudit {
   id           String           @id @default(cuid())
-  attendance   Attendance       @relation(fields: [attendanceId], references: [id])
+  attendance   Attendance       @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
   attendanceId String
   modifiedBy   String
   modifiedAt   DateTime

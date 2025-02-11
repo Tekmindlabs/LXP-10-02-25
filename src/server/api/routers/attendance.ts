@@ -4,16 +4,29 @@ import { AttendanceStatus, Prisma } from "@prisma/client";
 import { 
     AttendanceTrackingMode, 
     bulkAttendanceSchema,
-    type CacheConfig,
-    type CacheEntry,
     type AttendanceStatsData,
     type AttendanceDashboardData
 } from '@/types/attendance';
+
+
 import { startOfDay, endOfDay, subDays, startOfWeek, format, eachDayOfInterval } from "date-fns";
 import { TRPCError } from "@trpc/server";
-
 // Cache configuration
-const statsCache = new Map<string, CacheEntry<AttendanceStatsData | AttendanceDashboardData>>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const statsCache = new Map<string, {
+    data: AttendanceStatsData | AttendanceDashboardData;
+    timestamp: number;
+    expiresAt: number;
+}>();
+
+function getCacheEntry<T>(key: string): T | null {
+    const entry = statsCache.get(key);
+    if (!entry || Date.now() > entry.expiresAt) {
+        statsCache.delete(key);
+        return null;
+    }
+    return entry.data as T;
+}
 
 
 export const attendanceRouter = createTRPCRouter({
@@ -96,22 +109,22 @@ export const attendanceRouter = createTRPCRouter({
 
               // Create audit log if status changed
               if (existing && existing.status !== student.status) {
-                await tx.attendance.update({
-                  where: { id: result.id },
+                await tx.attendanceAudit.create({
                   data: {
-                    AttendanceAudit: {
-                      create: {
-                        modifiedBy: ctx.session.user.id,
-                        modifiedAt: new Date(),
-                        oldValue: existing.status,
-                        newValue: student.status,
-                        reason: student.notes,
-                        metadata: { source: 'batch_update' }
-                      }
-                    }
+                    attendanceId: result.id,
+                    modifiedBy: ctx.session.user.id,
+                    modifiedAt: new Date(),
+                    oldValue: existing.status,
+                    newValue: student.status,
+                    reason: student.notes,
+                    metadata: { source: 'batch_update' }
                   }
                 });
               }
+
+
+
+
 
               results.push(result);
             }
@@ -238,14 +251,13 @@ export const attendanceRouter = createTRPCRouter({
         subjectId: z.string()
       }))
       .query(async ({ ctx, input }) => {
-        const { date, subjectId } = input;
+        const { date } = input;
         return ctx.prisma.attendance.findMany({
           where: {
             date: {
               gte: startOfDay(date),
               lte: endOfDay(date)
-            },
-            subjectId
+            }
           },
           include: {
             student: {
@@ -257,6 +269,7 @@ export const attendanceRouter = createTRPCRouter({
           }
         });
       }),
+
 
 
     getStatsBySubject: protectedProcedure
@@ -272,19 +285,16 @@ export const attendanceRouter = createTRPCRouter({
                 date: input.dateRange ? {
                     gte: startOfDay(input.dateRange.start),
                     lte: endOfDay(input.dateRange.end),
-                } : undefined,
-                subject: {
-                    id: input.subjectId
-                }
+                } : undefined
             };
             
             const attendance = await ctx.prisma.attendance.findMany({
                 where: whereClause,
                 include: {
-                    class: true,
-                    subject: true
+                    class: true
                 }
             });
+
 
             
             const totalAttendance = attendance.length;
@@ -304,55 +314,63 @@ export const attendanceRouter = createTRPCRouter({
                 trackingMode: z.nativeEnum(AttendanceTrackingMode),
                 defaultMode: z.string(),
                 subjectWiseEnabled: z.boolean(),
+                notificationSettings: z.string()
             }),
         }))
         .mutation(async ({ ctx, input }) => {
             const { settings } = input;
-            const result = await ctx.prisma.$transaction(async (tx) => {
-                const existingSettings = await tx.attendance.findFirst({
-                    where: { id: '1' },
-                });
-
-                if (!existingSettings) {
-                    return tx.attendance.create({
-                        data: {
-                            id: '1',
-                            status: input.settings.trackingMode === AttendanceTrackingMode.CLASS ? 'PRESENT' : 'ABSENT',
-                            date: new Date(),
-                            studentId: 'system',
-                            classId: 'system',
-                        },
-                    });
-                }
-
-                return tx.attendance.update({
-                    where: { id: '1' },
-                    data: {
-                        status: input.settings.trackingMode === AttendanceTrackingMode.CLASS ? 'PRESENT' : 'ABSENT',
-                    },
-                });
-            });
             
-            return input.settings;
+            await ctx.prisma.attendanceSettings.upsert({
+                where: { id: '1' },
+                create: {
+                    id: '1',
+                    trackingMode: settings.trackingMode,
+                    defaultMode: settings.defaultMode,
+                    subjectWiseEnabled: settings.subjectWiseEnabled,
+                },
+                update: {
+                    trackingMode: settings.trackingMode,
+                    defaultMode: settings.defaultMode,
+                    subjectWiseEnabled: settings.subjectWiseEnabled,
+                }
+            });
+
+            
+            return settings;
         }),
+
+
 
     getSettings: protectedProcedure
         .query(async ({ ctx }) => {
-            const settings = await ctx.prisma.attendance.findFirst({
-                where: { 
-                    id: '1',
-                    studentId: 'system',
-                    classId: 'system'
-                },
+            const settings = await ctx.prisma.attendanceSettings.findFirst({
+                where: { id: '1' }
             });
 
-            return settings ?? {
-                id: '1',
-                trackingMode: AttendanceTrackingMode.CLASS,
-                defaultMode: 'CLASS',
-                subjectWiseEnabled: false,
+            if (!settings) {
+                return {
+                    trackingMode: AttendanceTrackingMode.CLASS,
+                    defaultMode: 'CLASS',
+                    subjectWiseEnabled: false,
+                    notificationSettings: JSON.stringify({
+                        enableAbsenceAlerts: true,
+                        consecutiveAbsenceThreshold: 3,
+                        lowAttendanceThreshold: 75
+                    })
+                };
+            }
+
+            return {
+                ...settings,
+                notificationSettings: JSON.stringify({
+                    enableAbsenceAlerts: true,
+                    consecutiveAbsenceThreshold: 3,
+                    lowAttendanceThreshold: 75
+                })
             };
         }),
+
+
 
     getStats: protectedProcedure.query(async ({ ctx }): Promise<AttendanceStatsData> => {
     try {

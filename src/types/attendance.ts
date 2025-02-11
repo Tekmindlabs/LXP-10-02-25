@@ -162,16 +162,14 @@ export interface AttendanceSettings {
   trackingMode: AttendanceTrackingMode;
   defaultMode: 'CLASS' | 'SUBJECT';
   subjectWiseEnabled: boolean;
-  requireNotesForExcused: boolean;
-  allowBulkUpdates: boolean;
-  enableAuditLog: boolean;
-  retentionPeriod?: number;
-  notificationSettings?: {
-    enableAbsenceAlerts: boolean;
-    consecutiveAbsenceThreshold: number;
-    lowAttendanceThreshold: number;
-  };
 }
+
+export const defaultAttendanceSettings: AttendanceSettings = {
+  trackingMode: AttendanceTrackingMode.CLASS,
+  defaultMode: 'CLASS',
+  subjectWiseEnabled: false
+
+};
 
 // Cache configuration
 export interface CacheConfig {

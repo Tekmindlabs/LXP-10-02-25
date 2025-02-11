@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AttendanceTrackingMode } from '@/types/attendance';
 import { api } from '@/utils/api';
 import { useSession } from 'next-auth/react';
+import type { Class, ClassGroup, Subject } from '@prisma/client';
 
 interface AttendanceFormProps {
 	selectedClass: string;
@@ -30,7 +31,7 @@ export const AttendanceForm = ({
 	const isTeacher = userRoles.includes('TEACHER');
 	const hasAccessPermission = isAdmin || isSuperAdmin || isTeacher;
 
-	const { data: classes, error: classError } = api.class.list.useQuery(
+	const { data: classGroups } = api.classGroup.list.useQuery(
 		undefined,
 		{
 			enabled: sessionStatus === 'authenticated' && hasAccessPermission,
@@ -43,10 +44,12 @@ export const AttendanceForm = ({
 		{ enabled: !!selectedClass && trackingMode !== AttendanceTrackingMode.CLASS }
 	);
 
+	const selectedClassGroup = classGroups?.find(group => 
+		group.classes?.some(cls => cls.id === selectedClass)
+	);
+
 	const filteredSubjects = subjects?.filter(subject => 
-		subject.classGroups?.some(group => 
-			group.classes?.some((cls: { id: string; name: string }) => cls.id === selectedClass)
-		)
+		selectedClassGroup?.subjects?.some(s => s.id === subject.id)
 	) ?? [];
 
 	return (
@@ -62,23 +65,23 @@ export const AttendanceForm = ({
 							<SelectValue placeholder="Select a class" />
 						</SelectTrigger>
 						<SelectContent>
-							{sessionStatus === 'loading' ? (
+							  {sessionStatus === 'loading' ? (
 								<SelectItem value="loading" disabled>Loading...</SelectItem>
-							) : !session?.user ? (
+							  ) : !session?.user ? (
 								<SelectItem value="not-signed-in" disabled>Please sign in</SelectItem>
-							) : !hasAccessPermission ? (
+							  ) : !hasAccessPermission ? (
 								<SelectItem value="unauthorized" disabled>Unauthorized access</SelectItem>
-							) : classError ? (
-								<SelectItem value="error-loading" disabled>Error loading classes</SelectItem>
-							) : !classes?.length ? (
+							  ) : !classGroups?.length ? (
 								<SelectItem value="no-classes" disabled>No classes found</SelectItem>
-							) : (
-								classes.map((cls) => (
+							  ) : (
+								classGroups.flatMap(group => 
+								  group.classes?.map(cls => (
 									<SelectItem key={cls.id} value={cls.id}>
-										{cls.name}
+									  {cls.name}
 									</SelectItem>
-								))
-							)}
+								  )) ?? []
+								)
+							  )}
 						</SelectContent>
 					</Select>
 				</div>

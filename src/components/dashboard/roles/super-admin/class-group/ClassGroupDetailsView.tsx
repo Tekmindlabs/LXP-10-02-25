@@ -303,22 +303,25 @@ export const ClassGroupDetailsView = ({ classGroupId }: ClassGroupDetailsViewPro
 							</CardContent>
 						</Card>
 
-						{attendanceStats?.subjectWise && (
+						{validateAttendanceData(attendanceStats) && (
 							<Card>
 								<CardHeader>
-									<CardTitle>Subject-wise Attendance</CardTitle>
+									<CardTitle>Attendance Rate by Period</CardTitle>
 								</CardHeader>
 								<CardContent>
 									<ResponsiveContainer width="100%" height={300}>
-										<BarChart data={attendanceStats.subjectWise}>
+										<LineChart data={attendanceStats.trends}>
 											<CartesianGrid strokeDasharray="3 3" />
-											<XAxis dataKey="subjectName" />
+											<XAxis dataKey="date" />
 											<YAxis />
 											<Tooltip />
-											<Bar dataKey="attendanceRate" fill="#82ca9d" name="Attendance Rate" />
-											<Bar dataKey="presentCount" fill="#8884d8" name="Present" />
-											<Bar dataKey="absentCount" fill="#ff8042" name="Absent" />
-										</BarChart>
+											<Line 
+												type="monotone" 
+												dataKey="attendanceRate" 
+												stroke="#82ca9d"
+												name="Attendance Rate"
+											/>
+										</LineChart>
 									</ResponsiveContainer>
 								</CardContent>
 							</Card>
