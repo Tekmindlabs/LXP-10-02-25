@@ -411,12 +411,13 @@ export const programRouter = createTRPCRouter({
         const existingProgram = await ctx.prisma.program.findUnique({
           where: { id: input.id },
           include: {
-            calendar: {
-              include: {
-                academicYear: true,
-                terms: true
-              }
+          calendar: {
+            include: {
+            academicYear: true,
+            terms: true
             }
+          },
+          assessmentSystem: true
           }
         });
 
@@ -452,18 +453,94 @@ export const programRouter = createTRPCRouter({
         }
 
         const updatedProgram = await ctx.prisma.$transaction(async (prisma) => {
-          // Delete grading scales first if assessment system is being updated
-          if (input.assessmentSystem?.markingScheme) {
-          await prisma.gradingScale.deleteMany({
-            where: {
-            markingScheme: {
-              assessmentSystem: {
-              programId: input.id
+            // Delete all related assessment entities first if assessment system is being updated
+            if (input.assessmentSystem && existingProgram.assessmentSystem) {
+            // Delete class group assessment settings first
+            await prisma.classGroupAssessmentSettings.deleteMany({
+              where: {
+              assessmentSystemId: existingProgram.assessmentSystem.id
               }
+            });
+
+            // Delete assessment submissions
+            await prisma.assessmentSubmission.deleteMany({
+              where: {
+              assessment: {
+                markingScheme: {
+                assessmentSystemId: existingProgram.assessmentSystem.id
+                }
+              }
+              }
+            });
+
+            // Delete assessments
+            await prisma.assessment.deleteMany({
+              where: {
+              OR: [
+                {
+                markingScheme: {
+                  assessmentSystemId: existingProgram.assessmentSystem.id
+                }
+                },
+                {
+                rubric: {
+                  assessmentSystemId: existingProgram.assessmentSystem.id
+                }
+                }
+              ]
+              }
+            });
+
+            // Delete grading scales
+            await prisma.gradingScale.deleteMany({
+              where: {
+              markingScheme: {
+                assessmentSystemId: existingProgram.assessmentSystem.id
+              }
+              }
+            });
+
+            // Delete rubric levels
+            await prisma.rubricLevel.deleteMany({
+              where: {
+              rubricCriteria: {
+                rubric: {
+                assessmentSystemId: existingProgram.assessmentSystem.id
+                }
+              }
+              }
+            });
+
+            // Delete rubric criteria
+            await prisma.rubricCriteria.deleteMany({
+              where: {
+              rubric: {
+                assessmentSystemId: existingProgram.assessmentSystem.id
+              }
+              }
+            });
+
+            // Delete rubrics
+            await prisma.rubric.deleteMany({
+              where: {
+              assessmentSystemId: existingProgram.assessmentSystem.id
+              }
+            });
+
+            // Delete marking schemes
+            await prisma.markingScheme.deleteMany({
+              where: {
+              assessmentSystemId: existingProgram.assessmentSystem.id
+              }
+            });
+
+            // Finally delete the assessment system
+            await prisma.assessmentSystem.delete({
+              where: {
+              id: existingProgram.assessmentSystem.id
+              }
+            });
             }
-            }
-          });
-          }
 
           if (input.termSystem) {
           // Delete class group term settings
@@ -536,40 +613,40 @@ export const programRouter = createTRPCRouter({
             }))
             } : undefined,
             assessmentSystem: input.assessmentSystem ? {
-            update: {
+              create: {
+              name: input.name + " Assessment System",
               type: input.assessmentSystem.type,
               markingSchemes: input.assessmentSystem.markingScheme ? {
-              deleteMany: {},
-              create: [{
+                create: [{
                 name: "Updated Marking Scheme",
                 maxMarks: input.assessmentSystem.markingScheme.maxMarks,
                 passingMarks: input.assessmentSystem.markingScheme.passingMarks,
                 gradingScale: {
-                createMany: {
+                  createMany: {
                   data: input.assessmentSystem.markingScheme.gradingScale
+                  }
                 }
-                }
-              }]
+                }]
               } : undefined,
               rubrics: input.assessmentSystem.rubric ? {
-              deleteMany: {},
-              create: [{
+                create: [{
                 name: input.assessmentSystem.rubric.name,
                 description: input.assessmentSystem.rubric.description,
                 criteria: {
-                create: input.assessmentSystem.rubric.criteria.map(criterion => ({
+                  create: input.assessmentSystem.rubric.criteria.map(criterion => ({
                   name: criterion.name,
                   description: criterion.description,
                   levels: {
-                  createMany: {
+                    createMany: {
                     data: criterion.levels
+                    }
                   }
-                  }
-                }))
+                  }))
                 }
-              }]
+                }]
               } : undefined
-            }
+              }
+
             } : undefined
           },
           include: includeConfig
