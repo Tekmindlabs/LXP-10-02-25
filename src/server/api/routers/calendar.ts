@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { CalendarType, Status, Visibility } from "@prisma/client";
 import { TermManagementService } from "../../services/TermManagementService";
+import { CalendarInheritanceService, CalendarInheritanceError } from "../../services/CalendarInheritanceService";
 
 const calendarSchema = z.object({
 	name: z.string(),
@@ -201,12 +202,49 @@ export const calendarRouter = createTRPCRouter({
 			calendarId: z.string(),
 			classId: z.string().optional(),
 			classGroupId: z.string().optional(),
-			status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE')
+			status: z.enum(['ACTIVE', 'INACTIVE', 'ARCHIVED']).default('ACTIVE'),
+			inheritanceSettings: z.object({
+				propagateToChildren: z.boolean(),
+				overrideParentSettings: z.boolean()
+			}).optional()
 		}))
 		.mutation(async ({ ctx, input }) => {
-			return ctx.prisma.calendarEvent.create({
-				data: input
-			});
+			const inheritanceService = new CalendarInheritanceService(ctx.prisma);
+
+			try {
+				if (input.level === 'class_group' && input.classGroupId) {
+					const classGroup = await ctx.prisma.classGroup.findUnique({
+						where: { id: input.classGroupId },
+						include: { program: true }
+					});
+
+					if (classGroup) {
+						await inheritanceService.validateInheritanceChain({
+							program: classGroup.programId,
+							classGroup: input.classGroupId
+						});
+					}
+				}
+
+				const event = await ctx.prisma.calendarEvent.create({
+					data: input
+				});
+
+				if (input.inheritanceSettings?.propagateToChildren && input.level === 'class_group') {
+					await inheritanceService.propagateEventToChildren(event, input.classGroupId!);
+				}
+
+				return event;
+			} catch (error) {
+				if (error instanceof CalendarInheritanceError) {
+					throw new TRPCError({
+						code: 'BAD_REQUEST',
+						message: error.message,
+						cause: error
+					});
+				}
+				throw error;
+			}
 		}),
 
 	getEvents: protectedProcedure

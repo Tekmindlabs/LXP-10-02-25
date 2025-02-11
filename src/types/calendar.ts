@@ -1,3 +1,8 @@
+export interface InheritanceSettings {
+	propagateToChildren: boolean;
+	overrideParentSettings: boolean;
+}
+
 export interface CalendarEvent {
 	id: string;
 	title: string;
@@ -12,6 +17,7 @@ export interface CalendarEvent {
 	status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 	createdAt: Date;
 	updatedAt: Date;
+	inheritanceSettings?: InheritanceSettings;
 }
 
 export interface TimetablePeriod {

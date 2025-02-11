@@ -4,13 +4,28 @@ import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog } from '@/components/ui/dialog';
 import { EventForm } from './EventForm';
-import { CalendarEvent } from '@/types/calendar';
+import type { CalendarEvent } from '@/types/calendar';
+
+interface EventFormData {
+	title: string;
+	start: Date;
+	end: Date;
+	description?: string;
+	inheritanceSettings?: {
+		propagateToChildren: boolean;
+		overrideParentSettings: boolean;
+	};
+}
 
 interface ViewEvent extends Omit<CalendarEvent, 'startDate' | 'endDate'> {
 	start: Date;
 	end: Date;
 	type: 'class' | 'class_group' | 'timetable';
 	entityId: string;
+	inheritanceSettings?: {
+		propagateToChildren: boolean;
+		overrideParentSettings: boolean;
+	};
 }
 
 interface CalendarViewProps {
@@ -45,6 +60,26 @@ export const CalendarView: FC<CalendarViewProps> = ({
 		}
 	};
 
+	const handleEventSave = (data: EventFormData) => {
+		const newEvent = {
+			...data,
+			id: crypto.randomUUID(),
+			type: entityType,
+			entityId,
+			start: data.start,
+			end: data.end,
+			inheritanceSettings: entityType === 'class_group' ? data.inheritanceSettings : undefined
+		};
+
+		if (selectedEvent && onEventEdit) {
+			onEventEdit(newEvent as ViewEvent);
+		} else if (onEventAdd) {
+			onEventAdd(newEvent as ViewEvent);
+		}
+		setShowEventDialog(false);
+	};
+
+
 
 	return (
 		<Card className="p-4">
@@ -75,21 +110,8 @@ export const CalendarView: FC<CalendarViewProps> = ({
 						event={selectedEvent}
 						entityType={entityType}
 						entityId={entityId}
-						onSave={(data) => {
-						  const newEvent = {
-							...data,
-							id: crypto.randomUUID(),
-							type: entityType,
-							entityId,
-							start: data.start,
-							end: data.end,
-						  };
-						  if (selectedEvent && onEventEdit) {
-							onEventEdit(newEvent as ViewEvent);
-						  } else if (onEventAdd) {
-							onEventAdd(newEvent as ViewEvent);
-						  }
-						}}
+						onSave={handleEventSave}
+
 						onClose={() => setShowEventDialog(false)}
 					/>
 				</Dialog>
