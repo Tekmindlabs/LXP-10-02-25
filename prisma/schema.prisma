@@ -435,14 +435,17 @@ model Attendance {
   studentId String
   class     Class            @relation(fields: [classId], references: [id])
   classId   String
+  subject   Subject?         @relation(fields: [subjectId], references: [id])
+  subjectId String?
   date      DateTime
   status    AttendanceStatus
   notes     String?
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
-  @@unique([studentId, date])
+  @@unique([studentId, date, subjectId])
   @@index([classId])
+  @@index([subjectId])
   @@index([date])
 }
 
@@ -1061,6 +1064,24 @@ model CGPARecord {
 
   @@unique([studentId, programId, academicYearId])
   @@map("cgpa_records")
+}
+
+// Add new model for attendance settings
+model AttendanceSettings {
+  id                String              @id @default(cuid())
+  trackingMode      AttendanceTrackingMode @default(CLASS)
+  defaultMode       String              @default("CLASS") // CLASS or SUBJECT
+  subjectWiseEnabled Boolean            @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@map("attendance_settings")
+}
+
+enum AttendanceTrackingMode {
+  CLASS
+  SUBJECT
+  BOTH
 }
 
 // Knowledge Base Models

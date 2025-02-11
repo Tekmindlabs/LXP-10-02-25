@@ -1,6 +1,6 @@
 "use client";
 
-import { Building, Calendar, Palette, Settings } from "lucide-react";
+import { Building, Calendar, CalendarCheck, Palette, Settings } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 
@@ -28,6 +28,11 @@ export function SettingsNavigation() {
 			title: "Academic Year",
 			href: `/dashboard/${role}/settings/academic-year`,
 			icon: Calendar,
+		},
+		{
+			title: "Attendance Settings",
+			href: `/dashboard/${role}/settings/attendance`,
+			icon: CalendarCheck,
 		},
 	];
 

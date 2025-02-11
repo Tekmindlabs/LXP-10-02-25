@@ -7,6 +7,12 @@ export enum AttendanceStatus {
   EXCUSED = "EXCUSED"
 }
 
+export enum AttendanceTrackingMode {
+  CLASS = "CLASS",
+  SUBJECT = "SUBJECT",
+  BOTH = "BOTH"
+}
+
 export const attendanceSchema = z.object({
   studentId: z.string(),
   status: z.enum([
@@ -17,10 +23,21 @@ export const attendanceSchema = z.object({
   ]),
   date: z.date(),
   classId: z.string(),
+  subjectId: z.string().optional(),
   notes: z.string().optional()
 });
 
 export type AttendanceRecord = z.infer<typeof attendanceSchema>;
+
+export interface SubjectAttendanceStats {
+  subjectId: string;
+  subjectName: string;
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  percentage: number;
+}
 
 export interface AttendanceStatsData {
   todayStats: {
@@ -37,6 +54,7 @@ export interface AttendanceStatsData {
     name: string;
     percentage: number;
   }>;
+  subjectStats?: SubjectAttendanceStats[];
 }
 
 export interface AttendanceDashboardData {
@@ -49,5 +67,12 @@ export interface AttendanceDashboardData {
     present: number;
     absent: number;
     percentage: number;
+    subjectAttendance?: SubjectAttendanceStats[];
   }>;
+}
+
+export interface AttendanceSettings {
+  trackingMode: AttendanceTrackingMode;
+  defaultMode: 'CLASS' | 'SUBJECT';
+  subjectWiseEnabled: boolean;
 }

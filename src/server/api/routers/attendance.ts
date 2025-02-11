@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { AttendanceStatus, Prisma } from "@prisma/client";
+import { AttendanceStatus, Prisma, AttendanceTrackingMode } from "@prisma/client";
 import { startOfDay, endOfDay, subDays, startOfWeek, format } from "date-fns";
 import { TRPCError } from "@trpc/server";
 
@@ -57,9 +57,10 @@ export const attendanceRouter = createTRPCRouter({
           records.map(record =>
             ctx.prisma.attendance.upsert({
               where: {
-                studentId_date: {
+                studentId_date_subjectId: {
                   studentId: record.studentId,
                   date: record.date,
+                  subjectId: null
                 }
               },
               update: {
@@ -78,7 +79,95 @@ export const attendanceRouter = createTRPCRouter({
         );
       }),
 
-getStats: protectedProcedure.query(async ({ ctx }) => {
+    getByDateAndSubject: protectedProcedure
+        .input(z.object({
+            date: z.date(),
+            subjectId: z.string(),
+        }))
+        .query(async ({ ctx, input }) => {
+            const { date, subjectId } = input;
+            return ctx.prisma.attendance.findMany({
+                where: {
+                    date: {
+                        gte: startOfDay(date),
+                        lte: endOfDay(date),
+                    },
+                    subjectId,
+                },
+                include: {
+                    student: {
+                        include: {
+                            user: true
+                        }
+                    },
+                    class: true,
+                },
+            });
+        }),
+
+    getStatsBySubject: protectedProcedure
+        .input(z.object({
+            subjectId: z.string(),
+            dateRange: z.object({
+                start: z.date(),
+                end: z.date(),
+            }).optional(),
+        }))
+        .query(async ({ ctx, input }) => {
+            const { subjectId, dateRange } = input;
+            const whereClause: Prisma.AttendanceWhereInput = { subjectId };
+            if (dateRange) {
+                whereClause.date = {
+                    gte: startOfDay(dateRange.start),
+                    lte: endOfDay(dateRange.end),
+                };
+            }
+            const attendance = await ctx.prisma.attendance.findMany({ where: whereClause });
+            
+            const totalAttendance = attendance.length;
+            const presentAttendance = attendance.filter(a => a.status === 'PRESENT').length;
+            
+            return {
+                total: totalAttendance,
+                present: presentAttendance,
+                absent: totalAttendance - presentAttendance,
+                percentage: totalAttendance > 0 ? (presentAttendance * 100) / totalAttendance : 0
+            };
+        }),
+
+    updateAttendanceSettings: protectedProcedure
+        .input(z.object({
+            settings: z.object({
+                trackingMode: z.nativeEnum(AttendanceTrackingMode),
+                defaultMode: z.string(),
+                subjectWiseEnabled: z.boolean(),
+            }),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const { settings } = input;
+            await ctx.prisma.attendanceSettings.upsert({
+                where: { id: '1' },
+                update: settings,
+                create: { ...settings, id: '1' },
+            });
+            return settings;
+        }),
+
+    getSettings: protectedProcedure
+        .query(async ({ ctx }) => {
+            const settings = await ctx.prisma.attendanceSettings.findFirst({
+                where: { id: '1' },
+            });
+
+            return settings ?? {
+                id: '1',
+                trackingMode: AttendanceTrackingMode.CLASS,
+                defaultMode: 'CLASS',
+                subjectWiseEnabled: false,
+            };
+        }),
+
+    getStats: protectedProcedure.query(async ({ ctx }) => {
     try {
         const cacheKey = `stats_${ctx.session.user.id}`;
         const cached = statsCache.get(cacheKey);
