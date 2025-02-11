@@ -451,8 +451,48 @@ export const programRouter = createTRPCRouter({
           }
         }
 
-        // Update program data
-        const updatedProgram = await ctx.prisma.program.update({
+        // Update program data using transaction
+        const updatedProgram = await ctx.prisma.$transaction(async (prisma) => {
+          if (input.termSystem) {
+          // First delete class group term settings
+          await prisma.classGroupTermSettings.deleteMany({
+            where: {
+            programTerm: {
+              programId: input.id
+            }
+            }
+          });
+
+          // Then delete assessment periods
+          await prisma.termAssessmentPeriod.deleteMany({
+            where: {
+            term: {
+              termStructure: {
+              programId: input.id
+              }
+            }
+            }
+          });
+          
+          // Then delete academic terms
+          await prisma.academicTerm.deleteMany({
+            where: {
+            termStructure: {
+              programId: input.id
+            }
+            }
+          });
+          
+          // Finally delete term structures
+          await prisma.programTermStructure.deleteMany({
+            where: {
+            programId: input.id
+            }
+          });
+          }
+
+          // Now update the program with new data
+          return prisma.program.update({
           where: { id: input.id },
           data: {
             name: input.name,
@@ -462,8 +502,7 @@ export const programRouter = createTRPCRouter({
             status: input.status,
             termSystem: input.termSystem?.type,
             termStructures: input.termSystem ? {
-              deleteMany: {},
-              create: input.termSystem.terms.map((term, index) => ({
+            create: input.termSystem.terms.map((term, index) => ({
               name: term.name,
               startDate: term.startDate,
               endDate: term.endDate,
@@ -472,59 +511,57 @@ export const programRouter = createTRPCRouter({
               status: Status.ACTIVE,
               academicYear: { connect: { id: existingAcademicYearId } },
               academicTerms: {
-                create: {
+              create: {
                 name: term.name,
                 status: Status.ACTIVE,
                 assessmentWeightage: 100,
                 term: { connect: { id: existingTermId } },
                 assessmentPeriods: {
-                  create: term.assessmentPeriods
-                }
+                create: term.assessmentPeriods
                 }
               }
-              }))
-
+              }
+            }))
             } : undefined,
             assessmentSystem: input.assessmentSystem ? {
-              update: {
+            update: {
               type: input.assessmentSystem.type,
               markingSchemes: input.assessmentSystem.markingScheme ? {
-                deleteMany: {},
-                create: [{
+              deleteMany: {},
+              create: [{
                 name: "Updated Marking Scheme",
                 maxMarks: input.assessmentSystem.markingScheme.maxMarks,
                 passingMarks: input.assessmentSystem.markingScheme.passingMarks,
                 gradingScale: {
-                  createMany: {
+                createMany: {
                   data: input.assessmentSystem.markingScheme.gradingScale
-                  }
                 }
-                }]
+                }
+              }]
               } : undefined,
               rubrics: input.assessmentSystem.rubric ? {
-                deleteMany: {},
-                create: [{
+              deleteMany: {},
+              create: [{
                 name: input.assessmentSystem.rubric.name,
                 description: input.assessmentSystem.rubric.description,
                 criteria: {
-                  create: input.assessmentSystem.rubric.criteria.map(criterion => ({
+                create: input.assessmentSystem.rubric.criteria.map(criterion => ({
                   name: criterion.name,
                   description: criterion.description,
                   levels: {
-                    createMany: {
+                  createMany: {
                     data: criterion.levels
-                    }
                   }
-                  }))
+                  }
+                }))
                 }
-                }]
+              }]
               } : undefined
-              }
+            }
             } : undefined
-
-
           },
           include: includeConfig
+          });
         });
 
         return updatedProgram;

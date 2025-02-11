@@ -143,57 +143,76 @@ export class TermManagementService {
 			throw new Error("Program term structure not found");
 		}
 
-		const updatedTerms = await this.db.programTermStructure.update({
-			where: { id: programTerm.id },
-			data: {
-				academicTerms: {
-					deleteMany: {},
-					create: updates.terms.map(term => ({
-						name: term.name,
-						startDate: term.startDate,
-						endDate: term.endDate,
-						type: term.type,
-						term: {
-							connect: { id: term.calendarTermId || '' }
-						},
-						assessmentPeriods: {
-							create: term.assessmentPeriods.map(ap => ({
-								name: ap.name,
-								startDate: ap.startDate,
-								endDate: ap.endDate,
-								weight: ap.weight
-							}))
-						}
-					}))
-				}
-			},
-			include: {
-				academicTerms: {
-					include: {
-						assessmentPeriods: true,
-						term: true,
-						termStructure: true
+		return await this.db.$transaction(async (tx) => {
+			// First, delete existing assessment periods
+			await tx.termAssessmentPeriod.deleteMany({
+				where: {
+					termId: {
+						in: programTerm.academicTerms.map(term => term.id)
 					}
 				}
-			}
-		});
+			});
 
-		if (updates.propagateToClassGroups && updatedTerms.academicTerms) {
-			await this.propagateTermUpdatesToClassGroups(
-				programId, 
-				updatedTerms.academicTerms.map(academicTerm => ({
-					id: academicTerm.id,
-					name: academicTerm.name,
-					startDate: academicTerm.term.startDate,
-					endDate: academicTerm.term.endDate,
-					type: academicTerm.term.type as TermType,
-					calendarTermId: academicTerm.termId,
-					assessmentPeriods: academicTerm.assessmentPeriods
-				})) as AcademicTerm[]
-			);
+			// Then delete existing academic terms
+			await tx.academicTerm.deleteMany({
+				where: {
+					termStructureId: programTerm.id
+				}
+			});
+
+			// Finally, create new terms with their assessment periods
+			const updatedTerms = await tx.programTermStructure.update({
+				where: { id: programTerm.id },
+				data: {
+					academicTerms: {
+						create: updates.terms.map(term => ({
+							name: term.name,
+							startDate: term.startDate,
+							endDate: term.endDate,
+							type: term.type,
+							term: {
+								connect: { id: term.calendarTermId }
+							},
+							assessmentPeriods: {
+								create: term.assessmentPeriods.map(ap => ({
+									name: ap.name,
+									startDate: ap.startDate,
+									endDate: ap.endDate,
+									weight: ap.weight
+								}))
+							}
+						}))
+					}
+				},
+				include: {
+					academicTerms: {
+						include: {
+							assessmentPeriods: true,
+							term: true,
+							termStructure: true
+						}
+					}
+				}
+			});
+
+			if (updates.propagateToClassGroups && updatedTerms.academicTerms) {
+				const termMap = new Map(updates.terms.map(t => [t.calendarTermId, t.type]));
+				await this.propagateTermUpdatesToClassGroups(
+					programId,
+					updatedTerms.academicTerms.map(academicTerm => ({
+						id: academicTerm.id,
+						name: academicTerm.name,
+						startDate: academicTerm.term.startDate,
+						endDate: academicTerm.term.endDate,
+						type: termMap.get(academicTerm.term.id) || 'SEMESTER', // Default to SEMESTER if not found
+						calendarTermId: academicTerm.term.id,
+						assessmentPeriods: academicTerm.assessmentPeriods
+					})) as AcademicTerm[]
+				);
 		}
 
 		return updatedTerms;
+	});
 	}
 
 	private async propagateTermUpdatesToClassGroups(programId: string, terms: AcademicTerm[]) {
