@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AttendanceTrackingMode } from "@prisma/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/utils/api";
@@ -19,6 +20,14 @@ interface PerformanceData {
 interface AttendanceTrend {
 	date: string;
 	attendanceRate: number;
+}
+
+interface SubjectAttendanceData {
+  subjectId: string;
+  subjectName: string;
+  attendanceRate: number;
+  presentCount: number;
+  absentCount: number;
 }
 
 interface ClassWithRelations extends Class {
@@ -272,33 +281,56 @@ export const ClassGroupDetailsView = ({ classGroupId }: ClassGroupDetailsViewPro
 				</TabsContent>
 
 				<TabsContent value="attendance">
-					<Card>
-						<CardHeader>
-							<CardTitle>Attendance Trends</CardTitle>
-						</CardHeader>
-						<CardContent>
-							{validateAttendanceData(attendanceStats) ? (
-								<ResponsiveContainer width="100%" height={300}>
-									<LineChart data={attendanceStats?.trends}>
-										<CartesianGrid strokeDasharray="3 3" />
-										<XAxis dataKey="date" />
-										<YAxis />
-										<Tooltip />
-										<Line 
-											type="monotone" 
-											dataKey="attendanceRate" 
-											stroke="#82ca9d"
-											name="Attendance Rate"
-										/>
-									</LineChart>
-								</ResponsiveContainer>
-							) : (
-								<div className="text-center p-4 text-muted-foreground">
-									No attendance data available for the selected period.
-								</div>
-							)}
-						</CardContent>
-					</Card>
+					<div className="grid gap-4">
+						<Card>
+							<CardHeader>
+								<CardTitle>Attendance Trends</CardTitle>
+							</CardHeader>
+							<CardContent>
+								{validateAttendanceData(attendanceStats) ? (
+									<ResponsiveContainer width="100%" height={300}>
+										<LineChart data={attendanceStats?.trends}>
+											<CartesianGrid strokeDasharray="3 3" />
+											<XAxis dataKey="date" />
+											<YAxis />
+											<Tooltip />
+											<Line 
+												type="monotone" 
+												dataKey="attendanceRate" 
+												stroke="#82ca9d"
+												name="Attendance Rate"
+											/>
+										</LineChart>
+									</ResponsiveContainer>
+								) : (
+									<div className="text-center p-4 text-muted-foreground">
+										No attendance data available for the selected period.
+									</div>
+								)}
+							</CardContent>
+						</Card>
+
+						{attendanceStats?.subjectWise && (
+							<Card>
+								<CardHeader>
+									<CardTitle>Subject-wise Attendance</CardTitle>
+								</CardHeader>
+								<CardContent>
+									<ResponsiveContainer width="100%" height={300}>
+										<BarChart data={attendanceStats.subjectWise}>
+											<CartesianGrid strokeDasharray="3 3" />
+											<XAxis dataKey="subjectName" />
+											<YAxis />
+											<Tooltip />
+											<Bar dataKey="attendanceRate" fill="#82ca9d" name="Attendance Rate" />
+											<Bar dataKey="presentCount" fill="#8884d8" name="Present" />
+											<Bar dataKey="absentCount" fill="#ff8042" name="Absent" />
+										</BarChart>
+									</ResponsiveContainer>
+								</CardContent>
+							</Card>
+						)}
+					</div>
 				</TabsContent>
 
 				<TabsContent value="subjects">

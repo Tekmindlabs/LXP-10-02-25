@@ -811,7 +811,7 @@ export const classGroupRouter = createTRPCRouter({
 
 			const studentIds = students.flatMap(c => c.students.map(s => s.id));
 
-			// Get attendance records
+			// Get attendance records with subject information
 			const attendance = await ctx.prisma.attendance.findMany({
 				where: {
 					studentId: { in: studentIds },
@@ -819,6 +819,9 @@ export const classGroupRouter = createTRPCRouter({
 						gte: startDate,
 						lte: endDate
 					}
+				},
+				include: {
+					subject: true
 				}
 			});
 
@@ -835,14 +838,51 @@ export const classGroupRouter = createTRPCRouter({
 				return acc;
 			}, {} as Record<string, { present: number; total: number; }>);
 
+			// Calculate subject-wise attendance
+			const subjectWise = attendance.reduce((acc, record) => {
+				if (!record.subject) return acc;
+				
+				const subjectId = record.subject.id;
+				if (!acc[subjectId]) {
+					acc[subjectId] = {
+						subjectId,
+						subjectName: record.subject.name,
+						present: 0,
+						absent: 0,
+						total: 0,
+					};
+				}
+				
+				acc[subjectId].total += 1;
+				if (record.status === 'PRESENT') {
+					acc[subjectId].present += 1;
+				} else if (record.status === 'ABSENT') {
+					acc[subjectId].absent += 1;
+				}
+				
+				return acc;
+			}, {} as Record<string, {
+				subjectId: string;
+				subjectName: string;
+				present: number;
+				absent: number;
+				total: number;
+			}>);
+
 			const trends = Object.entries(attendanceByDate).map(([date, stats]) => ({
 				date,
 				attendanceRate: (stats.present / stats.total) * 100
 			}));
 
+			const subjectWiseStats = Object.values(subjectWise).map(stats => ({
+				...stats,
+				attendanceRate: (stats.present / stats.total) * 100
+			}));
+
 			return {
 				trends,
-				averageAttendance: trends.reduce((acc, day) => acc + day.attendanceRate, 0) / trends.length
+				averageAttendance: trends.reduce((acc, day) => acc + day.attendanceRate, 0) / trends.length,
+				subjectWise: subjectWiseStats
 			};
 		}),
 });
