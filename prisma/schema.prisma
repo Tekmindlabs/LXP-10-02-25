@@ -450,6 +450,23 @@ model Attendance {
   @@index([date])
 }
 
+model AttendanceAudit {
+  id           String           @id @default(cuid())
+  attendanceId String
+  modifiedBy   String
+  modifiedAt   DateTime
+  oldValue     AttendanceStatus
+  newValue     AttendanceStatus
+  reason       String?
+  metadata     Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([attendanceId])
+  @@index([modifiedBy])
+  @@map("attendance_audits")
+}
+
 // Activity & Assessment Models
 model ClassActivity {
   id            String    @id @default(cuid())

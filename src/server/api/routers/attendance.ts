@@ -1,83 +1,262 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { AttendanceStatus, Prisma } from "@prisma/client";
-import { AttendanceTrackingMode } from '@/types/attendance';
-import { startOfDay, endOfDay, subDays, startOfWeek, format } from "date-fns";
+import { 
+    AttendanceTrackingMode, 
+    attendanceSchema, 
+    bulkAttendanceSchema,
+    type CacheConfig,
+    type CacheEntry
+} from '@/types/attendance';
+import { startOfDay, endOfDay, subDays, startOfWeek, format, eachDayOfInterval } from "date-fns";
 import { TRPCError } from "@trpc/server";
 
-// Cache implementation
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-interface CacheEntry<T> {
-    data: T;
-    timestamp: number;
+// Enhanced cache implementation
+const CACHE_CONFIG: CacheConfig = {
+    enabled: true,
+    duration: 5 * 60 * 1000, // 5 minutes
+    keys: {
+        stats: 'stats',
+        dashboard: 'dashboard',
+        reports: 'reports'
+    }
+};
+
+const cache = new Map<string, CacheEntry<any>>();
+
+function getCacheKey(baseKey: string, userId: string): string {
+    return `${baseKey}_${userId}`;
 }
-const statsCache = new Map<string, CacheEntry<any>>();
+
+function setCacheEntry<T>(key: string, data: T): void {
+    if (!CACHE_CONFIG.enabled) return;
+    
+    cache.set(key, {
+        data,
+        timestamp: Date.now(),
+        expiresAt: Date.now() + CACHE_CONFIG.duration
+    });
+}
+
+function getCacheEntry<T>(key: string): T | null {
+    if (!CACHE_CONFIG.enabled) return null;
+    
+    const entry = cache.get(key);
+    if (!entry || Date.now() > entry.expiresAt) {
+        cache.delete(key);
+        return null;
+    }
+    return entry.data;
+}
 
 export const attendanceRouter = createTRPCRouter({
     getByDateAndClass: protectedProcedure
       .input(z.object({
         date: z.date(),
-        classId: z.string(),
+        classId: z.string().min(1, "Class ID is required"),
       }))
       .query(async ({ ctx, input }) => {
-        const { date, classId } = input;
-        return ctx.prisma.attendance.findMany({
-          where: {
-            date: {
-              gte: startOfDay(date),
-              lte: endOfDay(date),
-            },
-            student: {
-              classId: classId
-            }
-          },
-          include: {
-            student: {
-              include: {
-                user: true
+        try {
+          const { date, classId } = input;
+          return await ctx.prisma.attendance.findMany({
+            where: {
+              date: {
+                gte: startOfDay(date),
+                lte: endOfDay(date),
+              },
+              student: {
+                classId: classId
               }
-            }
-          },
-        });
+            },
+            include: {
+              student: {
+                include: {
+                  user: true
+                }
+              }
+            },
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to fetch attendance records',
+            cause: error
+          });
+        }
       }),
   
     batchSave: protectedProcedure
-      .input(z.object({
-        records: z.array(z.object({
-          studentId: z.string(),
-          classId: z.string(),
-          date: z.date(),
-          status: z.nativeEnum(AttendanceStatus),
-          notes: z.string().optional()
-        }))
-      }))
+      .input(bulkAttendanceSchema)
       .mutation(async ({ ctx, input }) => {
-        const { records } = input;
-        
-        return ctx.prisma.$transaction(
-          records.map(record =>
-            ctx.prisma.attendance.upsert({
-              where: {
-                studentId_date: {
-                  studentId: record.studentId,
-                  date: record.date,
+        try {
+          const { date, classId, students } = input;
+          
+          return await ctx.prisma.$transaction(async (tx) => {
+            const results = [];
+            
+            for (const student of students) {
+              // Get existing record if any
+              const existing = await tx.attendance.findUnique({
+                where: {
+                  studentId_date: {
+                    studentId: student.studentId,
+                    date: date,
+                  }
+                }
+              });
+
+              // Create or update attendance record
+              const result = await tx.attendance.upsert({
+                where: {
+                  studentId_date: {
+                    studentId: student.studentId,
+                    date: date,
+                  }
+                },
+                update: {
+                  status: student.status,
+                  notes: student.notes,
+                },
+                create: {
+                  studentId: student.studentId,
+                  classId: classId,
+                  date: date,
+                  status: student.status,
+                  notes: student.notes,
+                },
+              });
+
+              // Create audit log if status changed
+              if (existing && existing.status !== student.status) {
+                await tx.attendanceAudit.create({
+                  data: {
+                    attendanceId: result.id,
+                    modifiedBy: ctx.session.user.id,
+                    modifiedAt: new Date(),
+                    oldValue: existing.status,
+                    newValue: student.status,
+                    reason: student.notes
+                  }
+                });
+              }
+
+              results.push(result);
+            }
+
+            return results;
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to save attendance records',
+            cause: error
+          });
+        }
+      }),
+
+    generateReport: protectedProcedure
+      .input(z.object({
+        period: z.enum(['daily', 'weekly', 'monthly', 'custom']),
+        startDate: z.date(),
+        endDate: z.date(),
+        classId: z.string(),
+        subjectId: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        try {
+          const { startDate, endDate, classId, subjectId } = input;
+          
+          const whereClause: Prisma.AttendanceWhereInput = {
+            date: {
+              gte: startOfDay(startDate),
+              lte: endOfDay(endDate),
+            },
+            classId,
+            ...(subjectId && { subjectId })
+          };
+
+          const [attendance, students] = await Promise.all([
+            ctx.prisma.attendance.findMany({
+              where: whereClause,
+              include: {
+                student: {
+                  include: { user: true }
                 }
               },
-
-              update: {
-                status: record.status,
-                notes: record.notes,
-              },
-              create: {
-                studentId: record.studentId,
-                classId: record.classId,
-                date: record.date,
-                status: record.status,
-                notes: record.notes,
-              },
+            }),
+            ctx.prisma.studentProfile.findMany({
+              where: { classId },
+              include: { user: true }
             })
-          )
-        );
+          ]);
+
+          // Calculate daily trends
+          const dailyStats = eachDayOfInterval({ start: startDate, end: endDate })
+            .map(date => {
+              const dayAttendance = attendance.filter(a => 
+                startOfDay(a.date).getTime() === startOfDay(date).getTime()
+              );
+              
+              return {
+                date: format(date, 'yyyy-MM-dd'),
+                status: {
+                  [AttendanceStatus.PRESENT]: dayAttendance.filter(a => a.status === AttendanceStatus.PRESENT).length,
+                  [AttendanceStatus.ABSENT]: dayAttendance.filter(a => a.status === AttendanceStatus.ABSENT).length,
+                  [AttendanceStatus.LATE]: dayAttendance.filter(a => a.status === AttendanceStatus.LATE).length,
+                  [AttendanceStatus.EXCUSED]: dayAttendance.filter(a => a.status === AttendanceStatus.EXCUSED).length,
+                }
+              };
+            });
+
+          // Calculate student-wise statistics
+          const studentDetails = students.map(student => {
+            const studentAttendance = attendance.filter(a => a.studentId === student.id);
+            const total = studentAttendance.length;
+            
+            return {
+              studentId: student.id,
+              name: student.user.name ?? 'Unknown',
+              attendance: {
+                present: studentAttendance.filter(a => a.status === AttendanceStatus.PRESENT).length,
+                absent: studentAttendance.filter(a => a.status === AttendanceStatus.ABSENT).length,
+                late: studentAttendance.filter(a => a.status === AttendanceStatus.LATE).length,
+                excused: studentAttendance.filter(a => a.status === AttendanceStatus.EXCUSED).length,
+                percentage: total > 0 
+                  ? (studentAttendance.filter(a => a.status === AttendanceStatus.PRESENT).length * 100) / total 
+                  : 0
+              }
+            };
+          });
+
+          const totalRecords = attendance.length;
+          const present = attendance.filter(a => a.status === AttendanceStatus.PRESENT).length;
+          const absent = attendance.filter(a => a.status === AttendanceStatus.ABSENT).length;
+          const late = attendance.filter(a => a.status === AttendanceStatus.LATE).length;
+          const excused = attendance.filter(a => a.status === AttendanceStatus.EXCUSED).length;
+
+          return {
+            period: input.period,
+            startDate,
+            endDate,
+            classId,
+            subjectId,
+            stats: {
+              present,
+              absent,
+              late,
+              excused,
+              percentage: totalRecords > 0 ? (present * 100) / totalRecords : 0,
+              trend: dailyStats
+            },
+            studentDetails
+          };
+        } catch (error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to generate attendance report',
+            cause: error
+          });
+        }
       }),
 
     getByDateAndSubject: protectedProcedure

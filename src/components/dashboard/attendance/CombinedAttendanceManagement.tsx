@@ -21,6 +21,12 @@ import { useSession } from 'next-auth/react';
 interface ClassGroup {
   id: string;
   name: string;
+  description: string | null;
+  status: Status;
+  calendarId: string;
+  programId: string;
+  createdAt: Date;
+  updatedAt: Date;
   classes: Array<{
     id: string;
     name: string;
@@ -69,7 +75,7 @@ export const CombinedAttendanceManagement = () => {
   const filteredSubjects = useMemo(() => 
     subjects?.filter(subject => 
       subject.classGroups?.some(group => 
-        group.classes?.some(cls => cls.id === selectedClass)
+        group.classes?.some((cls: { id: string; name: string; }) => cls.id === selectedClass)
       )
     ) ?? [],
     [subjects, selectedClass]
