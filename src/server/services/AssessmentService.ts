@@ -1,4 +1,10 @@
-import { PrismaClient, Assessment } from '@prisma/client';
+import { PrismaClient, Assessment, Prisma } from '@prisma/client';
+
+interface AssessmentWithScore {
+	id: string;
+	totalPoints: number;
+	obtainedMarks: number;
+}
 
 interface RubricScore {
 	criteriaId: string;
@@ -108,5 +114,50 @@ export class AssessmentService {
 		);
 
 		return gradePoint ? gradePoint.points : 0;
+	}
+
+	async getSubjectTermAssessments(
+		subjectId: string,
+		_termId: string
+	): Promise<AssessmentWithScore[]> {
+		// First get all activities for the subject and term
+		const activities = await this.db.classActivity.findMany({
+			where: {
+				subjectId,
+				configuration: {
+					path: ['assessmentId'],
+					not: Prisma.JsonNull
+				}
+
+			},
+			select: {
+				configuration: true
+			}
+		});
+
+		const assessmentIds = activities
+			.map(activity => (activity.configuration as any).assessmentId)
+			.filter(Boolean);
+
+		if (assessmentIds.length === 0) {
+			return [];
+		}
+
+		const assessments = await this.db.assessment.findMany({
+			where: {
+				id: {
+					in: assessmentIds
+				}
+			},
+			include: {
+				submissions: true
+			}
+		});
+
+		return assessments.map(assessment => ({
+			id: assessment.id,
+			totalPoints: assessment.totalPoints,
+			obtainedMarks: assessment.submissions[0]?.obtainedMarks ?? 0
+		}));
 	}
 }

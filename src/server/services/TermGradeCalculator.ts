@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 interface TermGrade {
 	termId: string;
@@ -52,32 +52,52 @@ export class TermGradeCalculator {
 		subjectId: string,
 		studentId: string
 	): Promise<number> {
-		const assessments = await this.prisma.assessment.findMany({
+		// First get activities for the period and subject
+		const activities = await this.prisma.classActivity.findMany({
 			where: {
-				termAssessmentPeriodId: periodId,
-				subjectId
+				subjectId,
+				configuration: {
+					path: ['assessmentId'],
+					not: Prisma.JsonNull
+				}
 			}
 		});
 
+		const assessmentIds = activities
+			.map(activity => (activity.configuration as any).assessmentId)
+			.filter(Boolean);
+
+		if (assessmentIds.length === 0) {
+			return 0;
+		}
+
+		const assessments = await this.prisma.assessment.findMany({
+			where: {
+				id: {
+					in: assessmentIds
+				}
+			},
+			include: {
+				submissions: {
+					where: {
+						studentId
+					}
+				}
+			}
+		});
 
 		let totalWeightedScore = 0;
-		let totalWeight = 0;
+		let totalPoints = 0;
 
 		for (const assessment of assessments) {
-			const submission = await this.prisma.assessmentSubmission.findFirst({
-				where: {
-					assessmentId: assessment.id,
-					studentId
-				}
-			});
-
+			const submission = assessment.submissions[0];
 			if (submission) {
-				totalWeightedScore += (submission.obtainedMarks || 0) * assessment.totalPoints;
-				totalWeight += assessment.totalPoints;
+				totalWeightedScore += (submission.obtainedMarks || 0);
+				totalPoints += assessment.totalPoints;
 			}
 		}
 
-		return totalWeight > 0 ? totalWeightedScore / totalWeight : 0;
+		return totalPoints > 0 ? (totalWeightedScore / totalPoints) * 100 : 0;
 	}
 
 	async generateTermReport(termId: string, classId: string): Promise<{

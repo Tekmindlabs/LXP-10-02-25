@@ -1,415 +1,307 @@
 import { PrismaClient, Prisma } from "@prisma/client";
-import type { AcademicTerm, TermAssessmentPeriod, TermType, ProgramTermStructure } from "@/types/terms";
-import type { CalendarEvent } from "@/types/calendar";
-import { CustomSettings, CustomTerm } from "@/types/terms";
-import { AssessmentService } from "./AssessmentService";
-import { TermManagementService } from "./TermManagementService";
 import { SubjectGradeManager } from './SubjectGradeManager';
-import { SubjectTermGrade, CumulativeGrade } from '@/types/grades';
+import { TermManagementService } from "./TermManagementService";
+import { AssessmentService } from "./AssessmentService";
 
 type PrismaTransaction = Prisma.TransactionClient;
 
-interface SubjectTermGrade {
-	percentage: number;
-	isPassing: boolean;
-	gradePoints: number;
-	credits: number;
+interface CreateClassInput {
+    name: string;
+    classGroupId: string;
+    capacity: number;
 }
 
-interface CumulativeGrade {
-	gpa: number;
-	totalCredits: number;
-	earnedCredits: number;
-	subjectGrades: Record<string, SubjectTermGrade>;
+interface SubjectTermGradeData {
+
+    percentage: number;
+    isPassing: boolean;
+    gradePoints: number;
+    credits: number;
 }
 
-
+interface CumulativeGradeData {
+    gpa: number;
+    totalCredits: number;
+    earnedCredits: number;
+    subjectGrades: Record<string, SubjectTermGradeData>;
+}
 
 export class GradeBookService {
-	private subjectGradeManager: SubjectGradeManager;
+    private subjectGradeManager: SubjectGradeManager;
+    private termService: TermManagementService;
+    private assessmentService: AssessmentService;
 
-	constructor(
-		private db: PrismaClient
-	) {
-		this.subjectGradeManager = new SubjectGradeManager(db);
-	}
+    constructor(
+        private db: PrismaClient
+    ) {
+        this.subjectGradeManager = new SubjectGradeManager(db);
+        this.termService = new TermManagementService(db);
+        this.assessmentService = new AssessmentService(db);
+    }
 
+    async initializeGradeBook(classId: string): Promise<void> {
+        const classData = await this.db.class.findUnique({
+            where: { id: classId },
+            include: {
+                classGroup: {
+                    include: {
+                        program: {
+                            include: {
+                                assessmentSystem: true,
+                                termStructures: true
+                            }
+                        },
+                        subjects: true
+                    }
+                }
+            }
+        });
 
+        if (!classData) throw new Error('Class not found');
 
-	async initializeGradeBook(classId: string): Promise<void> {
-		const classData = await this.db.class.findUnique({
-			where: { id: classId },
-			include: {
-				classGroup: {
-					include: {
-						program: {
-							include: {
-								assessmentSystem: true,
-								termStructures: true
-							}
-						},
-						subjects: true
-					}
-				}
-			}
-		});
+        const assessmentSystem = classData.classGroup.program.assessmentSystem;
+        const termStructure = classData.classGroup.program.termStructures[0];
 
-		if (!classData) throw new Error('Class not found');
+        if (!assessmentSystem || !termStructure) {
+            throw new Error('Assessment system or term structure not found');
+        }
 
-		const assessmentSystem = classData.classGroup.program.assessmentSystem;
-		const termStructure = classData.classGroup.program.termStructures[0];
+        await this.db.gradeBook.create({
+            data: {
+                classId,
+                assessmentSystemId: assessmentSystem.id,
+                termStructureId: termStructure.id,
+                subjectRecords: {
+                    create: classData.classGroup.subjects.map(subject => ({
+                        subjectId: subject.id,
+                        termGrades: Prisma.JsonNull,
+                        assessmentPeriodGrades: Prisma.JsonNull
+                    }))
+                }
+            }
+        });
+    }
 
-		if (!assessmentSystem || !termStructure) {
-			throw new Error('Assessment system or term structure not found');
-		}
+    async createClassWithInheritance(classData: CreateClassInput): Promise<any> {
+        return await this.db.$transaction(async (tx) => {
+            const newClass = await tx.class.create({
+                data: {
+                    name: classData.name,
+                    classGroupId: classData.classGroupId,
+                    capacity: classData.capacity,
+                    status: 'ACTIVE'
+                }
+            });
 
-		await this.db.gradeBook.create({
-			data: {
-				classId,
-				assessmentSystemId: assessmentSystem.id,
-				termStructureId: termStructure.id,
-				subjectRecords: {
-					create: classData.classGroup.subjects.map((subject: { id: string }) => ({
-						subjectId: subject.id,
-						termGrades: Prisma.JsonNull,
-						assessmentPeriodGrades: Prisma.JsonNull
-					}))
-				}
-			}
-		});
-	}
+            const termSettings = await this.termService.inheritClassGroupTerms(
+                classData.classGroupId,
+                newClass.id
+            );
 
+            await tx.class.update({
+                where: { id: newClass.id },
+                data: { termStructureId: termSettings.id }
+            });
 
-	async createClassWithInheritance(classData: CreateClassInput): Promise<any> {
-		return await this.db.$transaction(async (tx) => {
+            const assessmentSystem = await this.resolveAndInheritAssessmentSystem(
+                classData.classGroupId,
+                newClass.id,
+                tx
+            );
 
-			// 1. Create class with inherited class group settings
-			const newClass = await tx.class.create({
-				data: {
-					name: classData.name,
-					classGroupId: classData.classGroupId,
-					capacity: classData.capacity,
-					status: 'ACTIVE'
-				}
-			});
+            const gradeBook = await tx.gradeBook.create({
+                data: {
+                    classId: newClass.id,
+                    assessmentSystemId: assessmentSystem.id,
+                    termStructureId: termSettings.id,
+                    subjectRecords: {
+                        create: []
+                    }
+                }
+            });
 
-			// 2. Inherit term management settings
-			const termSettings = await this.termService.inheritClassGroupTerms(
-				classData.classGroupId,
-				newClass.id
-			);
+            await this.initializeSubjectGradeRecords(
+                tx,
+                gradeBook.id,
+                classData.classGroupId
+            );
 
-			// Update class with term structure
-			await tx.class.update({
-				where: { id: newClass.id },
-				data: { termStructureId: termSettings.id }
-			});
+            return newClass;
+        });
+    }
 
-			// 3. Inherit assessment system
-			const assessmentSystem = await this.resolveAndInheritAssessmentSystem(
-				classData.classGroupId,
-				newClass.id,
-				tx
-			);
+    private async initializeSubjectGradeRecords(
+        tx: PrismaTransaction,
+        gradeBookId: string,
+        classGroupId: string
+    ): Promise<void> {
+        const classGroup = await tx.classGroup.findUnique({
+            where: { id: classGroupId },
+            include: { subjects: true }
+        });
 
-			// 4. Initialize grade book with inherited settings
-			const gradeBook = await tx.gradeBook.create({
-				data: {
-					classId: newClass.id,
-					assessmentSystemId: assessmentSystem.id,
-					termStructureId: termSettings.id
-				}
-			});
+        if (!classGroup) {
+            throw new Error(`ClassGroup with id ${classGroupId} not found`);
+        }
 
-			// 5. Inherit and create subject grade records
-			await this.initializeSubjectGradeRecords(
-				tx,
-				gradeBook.id,
-				classData.classGroupId
-			);
+        await tx.subjectGradeRecord.createMany({
+            data: classGroup.subjects.map(subject => ({
+                gradeBookId,
+                subjectId: subject.id,
+                termGrades: Prisma.JsonNull,
+                assessmentPeriodGrades: Prisma.JsonNull
+            }))
+        });
+    }
 
-			return newClass;
-		});
-	}
+    async calculateCumulativeGrade(
+        gradeBookId: string,
+        studentId: string,
+        termId: string
+    ): Promise<CumulativeGradeData> {
+        const gradeBook = await this.db.gradeBook.findUnique({
+            where: { id: gradeBookId },
+            include: {
+                assessmentSystem: true,
+                subjectRecords: true,
+                class: {
+                    include: {
+                        classGroup: {
+                            include: {
+                                subjects: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
-	private async initializeSubjectGradeRecords(
-		tx: PrismaTransaction,
-		gradeBookId: string,
-		classGroupId: string
-	): Promise<void> {
-		const classGroup = await tx.classGroup.findUnique({
-			where: { id: classGroupId },
-			include: { subjects: true }
-		});
+        if (!gradeBook) throw new Error('Grade book not found');
 
-		if (!classGroup) {
-			throw new Error(`ClassGroup with id ${classGroupId} not found`);
-		}
+        const subjectGrades: Record<string, SubjectTermGradeData> = {};
+        let totalGradePoints = 0;
+        let totalCredits = 0;
+        let earnedCredits = 0;
 
-		await tx.subjectGradeRecord.createMany({
-			data: classGroup.subjects.map(subject => ({
-				gradeBookId,
-				subjectId: subject.id,
-				termGrades: Prisma.JsonNull,
-				assessmentPeriodGrades: Prisma.JsonNull
-			}))
-		});
-	}
+        for (const subject of gradeBook.class.classGroup.subjects) {
+            const termGrade = await this.subjectGradeManager.calculateSubjectTermGrade(
+                subject.id,
+                termId,
+                studentId,
+                gradeBook.assessmentSystemId
+            );
+            
+            subjectGrades[subject.id] = termGrade;
+            totalGradePoints += termGrade.gradePoints * termGrade.credits;
+            totalCredits += termGrade.credits;
+            
+            if (termGrade.isPassing) {
+                earnedCredits += termGrade.credits;
+            }
+        }
 
+        const gpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
 
-	private async resolveAndInheritAssessmentSystem(
-		classGroupId: string,
-		classId: string,
-		tx: PrismaTransaction
-	): Promise<any> {
-		const classGroup = await this.db.classGroup.findUnique({
-			where: { id: classGroupId },
-			include: {
-				program: {
-					include: {
-						assessmentSystem: true
-					}
-				},
-				assessmentSettings: true
-			}
-		});
+        await this.recordTermResult(
+            studentId,
+            termId,
+            gpa,
+            totalCredits,
+            earnedCredits
+        );
 
-		if (!classGroup) {
-			throw new Error(`ClassGroup with id ${classGroupId} not found`);
-		}
+        return {
+            gpa,
+            totalCredits,
+            earnedCredits,
+            subjectGrades
+        };
+    }
 
-		// Inherit from program's assessment system
-		const baseAssessmentSystem = classGroup.program.assessmentSystem;
+    private async resolveAndInheritAssessmentSystem(
+        classGroupId: string,
+        _classId: string,
+        tx: PrismaTransaction
+    ) {
+        const classGroup = await tx.classGroup.findUnique({
+            where: { id: classGroupId },
+            include: {
+                program: {
+                    include: {
+                        assessmentSystem: true
+                    }
+                }
+            }
+        });
 
-		if (!baseAssessmentSystem) {
-			throw new Error(`AssessmentSystem not found for program of ClassGroup ${classGroupId}`);
-		}
+        if (!classGroup?.program?.assessmentSystem) {
+            throw new Error('Assessment system not found for class group');
+        }
 
-		// Check for class group customizations
-		const classGroupAssessmentSettings = classGroup.assessmentSettings.find(setting => setting.assessmentSystemId === baseAssessmentSystem.id);
+        const assessmentSystem = await tx.assessmentSystem.create({
+            data: {
+                name: `${classGroup.program.assessmentSystem.name} - Class Copy`,
+                type: classGroup.program.assessmentSystem.type,
+                programId: classGroup.program.id,
+                cgpaConfig: classGroup.program.assessmentSystem.cgpaConfig as Prisma.InputJsonValue
+            }
+        });
 
-		// Apply customizations if they exist
-		const finalAssessmentSystem = classGroupAssessmentSettings?.isCustomized
-			? { ...baseAssessmentSystem, ...classGroupAssessmentSettings.customSettings }
-			: baseAssessmentSystem;
+        return assessmentSystem;
+    }
 
-		return finalAssessmentSystem;
-	}
+    private async recordTermResult(
+        studentId: string,
+        termId: string,
+        gpa: number,
+        totalCredits: number,
+        earnedCredits: number
+    ): Promise<void> {
+        await this.db.termResult.upsert({
+            where: {
+                studentId_programTermId: {
+                    studentId,
+                    programTermId: termId
+                }
+            },
+            update: {
+                gpa,
+                totalCredits,
+                earnedCredits
+            },
+            create: {
+                studentId,
+                programTermId: termId,
+                gpa,
+                totalCredits,
+                earnedCredits
+            }
+        });
+    }
 
-	private async initializeGradeBookWithTransaction(
-		tx: Prisma.TransactionClient,
-		classId: string
-	): Promise<void> {
-		const classData = await tx.class.findUnique({
-			where: { id: classId },
-			include: {
-				classGroup: {
-					include: {
-						program: {
-							include: {
-								assessmentSystem: true,
-								termStructures: true
-							}
-						},
-						subjects: true
-					}
-				}
-			}
-		});
+    async calculateSubjectGrade(
+        _classId: string, 
+        subjectId: string, 
+        termId: string
+    ): Promise<number> {
+        const assessments = await this.assessmentService.getSubjectTermAssessments(
+            subjectId, 
+            termId
+        );
+        
+        if (!assessments || assessments.length === 0) {
+            return 0;
+        }
 
-		if (!classData) throw new Error('Class not found');
+        let totalWeightedScore = 0;
+        let totalPoints = 0;
 
-		const assessmentSystem = await this.resolveAssessmentSystemWithTransaction(tx, classData);
-		
-		// Create grade book with subject records
-		await tx.gradeBook.create({
-			data: {
-				classId,
-				assessmentSystemId: assessmentSystem.id,
-				subjectRecords: {
-					create: classData.classGroup.subjects.map(subject => ({
-						subjectId: subject.id,
-						termGrades: {},
-						assessmentPeriodGrades: {}
-					}))
-				}
-			}
-		});
-	}
+        for (const assessment of assessments) {
+            totalWeightedScore += assessment.obtainedMarks;
+            totalPoints += assessment.totalPoints;
+        }
 
-	private async resolveAssessmentSystem(classData: ClassData) {
-		const { program } = classData.classGroup;
-		const assessmentSystem = program.assessmentSystem;
-		
-		if (!assessmentSystem) {
-			throw new Error('No assessment system found');
-		}
+        return totalPoints > 0 ? (totalWeightedScore / totalPoints) * 100 : 0;
 
-		const classGroupSettings = await this.db.classGroupAssessmentSettings.findFirst({
-			where: { 
-				classGroupId: classData.classGroup.id,
-				assessmentSystemId: assessmentSystem.id
-			}
-		});
-
-		if (classGroupSettings?.isCustomized && classGroupSettings.customSettings) {
-			const settings = classGroupSettings.customSettings as Prisma.JsonObject;
-			return {
-				...assessmentSystem,
-				settings
-			};
-		}
-
-		return assessmentSystem;
-
-	}
-
-	private async resolveAssessmentSystemWithTransaction(
-		tx: PrismaTransaction,
-		classData: ClassData
-	): Promise<any> {
-		const { program } = classData.classGroup;
-		const assessmentSystem = program.assessmentSystem;
-		
-		if (!assessmentSystem) {
-			throw new Error('No assessment system found');
-		}
-
-		const classGroupSettings = await tx.classGroupAssessmentSettings.findFirst({
-			where: { 
-				classGroupId: classData.classGroup.id,
-				assessmentSystemId: assessmentSystem.id
-			}
-		});
-
-		if (classGroupSettings?.isCustomized && classGroupSettings.customSettings) {
-			const settings = classGroupSettings.customSettings as Prisma.JsonObject;
-			return {
-				...assessmentSystem,
-				settings
-			};
-		}
-
-		return assessmentSystem;
-	}
-
-
-
-	async calculateCumulativeGrade(
-		gradeBookId: string,
-		studentId: string,
-		termId: string
-	): Promise<CumulativeGrade> {
-		const gradeBook = await this.db.gradeBook.findUnique({
-			where: { id: gradeBookId },
-			include: {
-				assessmentSystem: true,
-				subjectRecords: true,
-				class: {
-					include: {
-						classGroup: {
-							include: {
-								subjects: true,
-								program: {
-									include: {
-										termStructures: true
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		});
-
-		if (!gradeBook) throw new Error('Grade book not found');
-
-		const subjectGrades: Record<string, SubjectTermGrade> = {};
-		let totalGradePoints = 0;
-		let totalCredits = 0;
-		let earnedCredits = 0;
-
-		for (const subject of gradeBook.class.classGroup.subjects) {
-			const termGrade = await this.subjectGradeManager.calculateSubjectTermGrade(
-				subject.id,
-				termId,
-				studentId,
-				gradeBook.assessmentSystemId
-			);
-			
-			subjectGrades[subject.id] = termGrade;
-			
-			totalGradePoints += termGrade.gradePoints * termGrade.credits;
-			totalCredits += termGrade.credits;
-			
-			if (termGrade.isPassing) {
-				earnedCredits += termGrade.credits;
-			}
-		}
-
-		const gpa = totalCredits > 0 ? totalGradePoints / totalCredits : 0;
-
-		await this.recordTermResult(
-			studentId,
-			termId,
-			gpa,
-			totalCredits,
-			earnedCredits
-		);
-
-		return {
-			gpa,
-			totalCredits,
-			earnedCredits,
-			subjectGrades
-		};
-	}
-
-
-	private async recordTermResult(
-		studentId: string,
-		termId: string,
-		gpa: number,
-		totalCredits: number,
-		earnedCredits: number
-	): Promise<void> {
-		await this.db.termResult.upsert({
-			where: {
-				studentId_programTermId: {
-					studentId,
-					programTermId: termId
-				}
-			},
-			update: {
-				gpa,
-				totalCredits,
-				earnedCredits
-			},
-			create: {
-				studentId,
-				programTermId: termId,
-				gpa,
-				totalCredits,
-				earnedCredits
-			}
-		});
-	}
-
-
-	private calculateGradePoints(percentage: number): number {
-		// Implement grade point calculation based on assessment system
-		if (percentage >= 90) return 4.0;
-		if (percentage >= 80) return 3.5;
-		if (percentage >= 70) return 3.0;
-		if (percentage >= 60) return 2.5;
-		if (percentage >= 50) return 2.0;
-		return 0.0;
-	}
-
-	async calculateSubjectGrade(classId: string, subjectId: string, termId: string): Promise<number> {
-		// Implementation to calculate subject grade based on assessments and term
-		const assessments = await this.assessmentService.getAssessmentsBySubjectAndTerm(subjectId, termId);
-		// ... logic to calculate grade based on assessments ...
-		return 0; // Placeholder, replace with actual calculation
-	}
+    }
 }

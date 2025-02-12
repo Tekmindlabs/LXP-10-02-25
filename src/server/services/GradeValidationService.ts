@@ -1,4 +1,4 @@
-import { PrismaClient, Assessment, TermAssessmentPeriod, AssessmentSubmission } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 interface ValidationResult {
 	isValid: boolean;
@@ -70,24 +70,42 @@ export class GradeValidationService {
 			return { isValid: false, errors };
 		}
 
-		const assessments = await this.db.assessment.findMany({
+		// Get activities with assessments for the period
+		const activities = await this.db.classActivity.findMany({
 			where: {
-				termAssessmentPeriod: {
-					id: periodId
-				}
-			},
-			include: {
-				submissions: {
-					where: { studentId }
+				configuration: {
+					path: ['assessmentId'],
+					not: Prisma.JsonNull
 				}
 			}
 		});
 
-		assessments.forEach(assessment => {
-			if (!assessment.submissions.length) {
-				errors.push(`Missing submission for assessment: ${assessment.title}`);
-			}
-		});
+		const assessmentIds = activities
+			.map(activity => (activity.configuration as any).assessmentId)
+			.filter(Boolean);
+
+		if (assessmentIds.length > 0) {
+			const assessments = await this.db.assessment.findMany({
+				where: {
+					id: {
+						in: assessmentIds
+					}
+				},
+				include: {
+					submissions: {
+						where: {
+							studentId
+						}
+					}
+				}
+			});
+
+			assessments.forEach(assessment => {
+				if (assessment.submissions.length === 0) {
+					errors.push(`Missing submission for assessment: ${assessment.title}`);
+				}
+			});
+		}
 
 		return {
 			isValid: errors.length === 0,
