@@ -2,16 +2,22 @@ import { z } from "zod";
 import { createTRPCRouter, permissionProtectedProcedure } from "../trpc";
 import { TRPCError } from "@trpc/server";
 import { Permissions } from "@/utils/permissions";
-import { 
-	ActivitySubmission,
-	ActivityConfiguration,
-	ActivityGradingType,
-	ClassActivity
-} from "@prisma/client";
+import { ActivitySubmission, ClassActivity as PrismaClassActivity } from "@prisma/client";
 import { GradeBookService } from "@/server/services/GradeBookService";
 import { AssessmentService } from "@/server/services/AssessmentService";
 import { TermManagementService } from "@/server/services/TermManagementService";
 import { SubjectGradeManager } from "@/server/services/SubjectGradeManager";
+
+type ActivityConfiguration = {
+	totalMarks: number;
+	passingMarks: number;
+	gradingType: string;
+};
+
+interface ClassActivity extends PrismaClassActivity {
+	submissions: ActivitySubmission[];
+}
+
 
 interface GradeData {
 	obtainedMarks: number;
@@ -46,7 +52,7 @@ export const gradebookRouter = createTRPCRouter({
 							}
 						}
 					}
-				});
+				}) as unknown as ClassActivity[];
 
 				const totalStudents = await ctx.prisma.studentProfile.count({
 					where: { classId: input.classId }
@@ -213,11 +219,8 @@ export const gradebookRouter = createTRPCRouter({
 					gradingType: config.gradingType
 				};
 
-				const gradeBookService = new GradeBookService(
-					ctx.prisma, 
-					new AssessmentService(ctx.prisma),
-					new TermManagementService(ctx.prisma)
-				);
+				const gradeBookService = new GradeBookService(ctx.prisma);
+
 
 
 				// Update grade and recalculate
@@ -239,9 +242,9 @@ export const gradebookRouter = createTRPCRouter({
 				// Recalculate subject grades if needed
 				if (activity.class?.gradeBook) {
 					await gradeBookService.calculateSubjectGrade(
-						activity.class.gradeBook.id,
+						activity.classId ?? '',
 						activity.subjectId,
-						activity.class.gradeBook.assessmentSystem.id
+						activity.class?.gradeBook?.termStructureId ?? ''
 					);
 				}
 
@@ -263,11 +266,8 @@ export const gradebookRouter = createTRPCRouter({
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
-				const gradeBookService = new GradeBookService(
-					ctx.prisma,
-					new AssessmentService(ctx.prisma),
-					new TermManagementService(ctx.prisma)
-				);
+				const gradeBookService = new GradeBookService(ctx.prisma);
+
 
 
 				const subjectGrade = await gradeBookService.calculateSubjectGrade(
@@ -289,18 +289,17 @@ export const gradebookRouter = createTRPCRouter({
 	getTermGrades: permissionProtectedProcedure(Permissions.GRADEBOOK_VIEW)
 		.input(z.object({ 
 			gradeBookId: z.string(),
-			termId: z.string()
+			termId: z.string(),
+			studentId: z.string()
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
-				const gradeBookService = new GradeBookService(
-					ctx.prisma,
-					new AssessmentService(ctx.prisma),
-					new TermManagementService(ctx.prisma)
-				);
+				const gradeBookService = new GradeBookService(ctx.prisma);
 
-				const termGrade = await gradeBookService.calculateTermGrade(
+
+				const termGrade = await gradeBookService.calculateCumulativeGrade(
 					input.gradeBookId,
+					input.studentId,
 					input.termId
 				);
 
@@ -322,13 +321,8 @@ export const gradebookRouter = createTRPCRouter({
 		}))
 		.query(async ({ ctx, input }) => {
 			try {
-				const assessmentService = new AssessmentService(ctx.prisma);
-				const termService = new TermManagementService(ctx.prisma);
-				const gradeBookService = new GradeBookService(
-					ctx.prisma,
-					assessmentService,
-					termService
-				);
+				const gradeBookService = new GradeBookService(ctx.prisma);
+
 
 				const cumulativeGrade = await gradeBookService.calculateCumulativeGrade(
 					input.gradeBookId,

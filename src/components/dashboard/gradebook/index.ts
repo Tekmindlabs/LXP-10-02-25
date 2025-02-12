@@ -1,4 +1,4 @@
-export { GradebookComponent } from './GradebookComponent';
+export { GradeBookComponent } from './GradebookComponent';
 export { GradebookOverview } from './GradebookOverview';
 export { GradebookActivities } from './GradebookActivities';
 export { StudentGrades } from './StudentGrades';

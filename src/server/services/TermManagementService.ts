@@ -1,15 +1,27 @@
 import { PrismaClient as PrismaClientType, Status as StatusType, Prisma } from "@prisma/client";
-import type { AcademicTerm, TermAssessmentPeriod, TermType, ProgramTermStructure } from "@/types/terms";
+import type { AcademicTerm, TermAssessmentPeriod } from "@/types/terms";
 import type { CalendarEvent } from "@/types/calendar";
 import { CustomSettings, CustomTerm } from "@/types/terms";
 
-interface CalendarSettings {
-	inheritFromProgram: boolean;
-	customEvents?: CalendarEvent[];
+type PrismaClient = PrismaClientType;
+
+interface ProgramTermStructure {
+	id: string;
+	programId: string;
+	academicYearId: string;
+	academicTerms: AcademicTerm[];
+	name: string;
+	status: StatusType;
+	startDate: Date;
+	endDate: Date;
+	weight: number;
+	order: number;
+	createdAt: Date;
+	updatedAt: Date;
 }
 
-type PrismaClient = PrismaClientType;
-type Status = StatusType;
+
+
 
 export class TermManagementService {
 	private db: PrismaClient;
@@ -27,7 +39,7 @@ export class TermManagementService {
 				name: "Default Term Structure",
 				weight: 1.0,
 				order: 1,
-				status: Status.ACTIVE,
+				status: StatusType.ACTIVE,
 				startDate: new Date(),
 				endDate: new Date(),
 				academicTerms: {
@@ -286,7 +298,7 @@ async createClassCalendar(classId: string) {
 		description: string | null;
 		startDate: Date;
 		endDate: Date;
-		status: string;
+		status: StatusType;
 		programId: string | null;
 	}) => ({
 		title: event.title,
@@ -326,7 +338,7 @@ async createClassCalendar(classId: string) {
 		const classGroups = await this.db.classGroup.findMany({
 			where: { 
 				programId,
-				status: Status.ACTIVE,
+				status: StatusType.ACTIVE,
 				termSettings: {
 					every: {
 						customSettings: {
@@ -363,7 +375,7 @@ async createClassCalendar(classId: string) {
 
 	async inheritClassGroupTerms(
 		classGroupId: string,
-		classId: string
+		_classId: string  // Prefix with _ to indicate it's unused
 	): Promise<ProgramTermStructure> {
 		const classGroup = await this.db.classGroup.findUnique({
 			where: { id: classGroupId },
@@ -394,35 +406,35 @@ async createClassCalendar(classId: string) {
 			throw new Error(`ClassGroup with id ${classGroupId} not found`);
 		}
 
-		// Get the active term structure from class group settings or program default
 		const termSettings = classGroup.termSettings[0];
-		const programTermStructure = termSettings?.programTerm || classGroup.program.termStructures[0];
+		const rawProgramTermStructure = termSettings?.programTerm || classGroup.program.termStructures[0];
 
-		if (!programTermStructure) {
+		if (!rawProgramTermStructure) {
 			throw new Error('No term structure found for class group');
 		}
 
-		// Check for customizations in class group term settings
+		const programTermStructure: ProgramTermStructure = {
+			...rawProgramTermStructure,
+			academicTerms: (rawProgramTermStructure as any).academicTerms || []
+		};
+
+
 		const customSettings = termSettings?.customSettings ? 
 			JSON.parse(termSettings.customSettings as string) as CustomSettings : 
 			undefined;
 
-		// If there are customizations, create a new term structure for the class
 		if (customSettings?.terms) {
-			// Apply customizations and return the modified term structure
 			const customizedTerms = this.mergeTermSettings(
-				programTermStructure.academicTerms as unknown as AcademicTerm[],
+				programTermStructure.academicTerms,
 				customSettings
 			);
 
-			// Return the term structure with customizations
 			return {
 				...programTermStructure,
 				academicTerms: customizedTerms
 			};
 		}
 
-		// If no customizations, return the program term structure as is
 		return programTermStructure;
 	}
 }
