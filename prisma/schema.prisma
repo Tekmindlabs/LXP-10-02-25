@@ -282,6 +282,7 @@ model Subject {
   progress           ProgressTracking[]
   attendance         Attendance[]
   gradeRecords      SubjectGradeRecord[]
+  subjectConfig      SubjectConfig?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
@@ -574,14 +575,20 @@ model SubjectGradeRecord {
 }
 
 model GradeHistory {
-  id          String   @id @default(cuid())
-  studentId   String
-  subjectId   String
-  gradeValue  Float
-  oldValue    Float?
-  modifiedBy  String
-  modifiedAt  DateTime @default(now())
-  reason      String?
+  id            String   @id @default(cuid())
+  studentId     String
+  subjectId     String
+  assessmentId  String
+  gradeValue    Float
+  oldValue      Float?
+  modifiedBy    String
+  modifiedAt    DateTime @default(now())
+  reason        String?
+  metadata      Json?    // Store additional context
+  
+  @@index([studentId, subjectId])
+  @@index([assessmentId])
+  @@map("grade_history")
 }
 
 // Marking System
@@ -1241,6 +1248,31 @@ model DataRetentionPolicy {
   updatedAt              DateTime @updatedAt
 
   @@map("data_retention_policies")
+}
+
+model SubjectConfig {
+  id                  String    @id @default(cuid())
+  subjectId           String    @unique
+  subject             Subject   @relation(fields: [subjectId], references: [id])
+  weightageDistribution Json    // Stores assessment type weightages
+  passingCriteria     Json     // Stores passing requirements
+  gradeScale          Json?    // Optional custom grade scale
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("subject_configs")
+}
+
+model BatchProcessingConfig {
+  id            String   @id @default(cuid())
+  entityType    String   // e.g., "GRADE_CALCULATION"
+  batchSize     Int      @default(100)
+  retryAttempts Int      @default(3)
+  timeoutMs     Int      @default(5000)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("batch_processing_configs")
 }
 
 model SystemSettings {

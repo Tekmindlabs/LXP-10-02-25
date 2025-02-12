@@ -50,7 +50,7 @@ interface GradeBook {
 	};
 }
 
-export const GradeBookComponent: React.FC<GradeBookProps> = ({ classId }) => {
+export const GradebookComponent: React.FC<GradeBookProps> = ({ classId }) => {
 	const [gradeBook, setGradeBook] = useState<GradeBook | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);

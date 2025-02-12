@@ -1,5 +1,6 @@
 import { PrismaClient, ActivitySubmission, MarkingScheme, Rubric, AssessmentSystem, Prisma } from '@prisma/client';
 import { AssessmentService } from './AssessmentService';
+import { SubjectAssessmentConfig } from '../../types/grades';
 
 
 interface AssessmentPeriodGrade {
@@ -34,86 +35,42 @@ export class SubjectGradeManager {
 		subjectId: string,
 		periodId: string,
 		studentId: string,
-		assessmentSystemId: string
+		assessmentSystemId: string,
+		config: SubjectAssessmentConfig
 	): Promise<AssessmentPeriodGrade> {
 		const period = await this.db.termAssessmentPeriod.findUnique({
 			where: { id: periodId }
 		});
 
-		const submissions = await this.db.activitySubmission.findMany({
-			where: {
-				activity: {
-					subjectId,
-					createdAt: {
-						gte: period?.startDate,
-						lte: period?.endDate
-					}
-				},
-				studentId,
-				gradedAt: { not: null }
-			},
-			include: {
-				activity: {
-					include: {
-						subject: true
-					}
-				}
-			}
-		});
-
-		let totalObtained = 0;
-		let totalPossible = 0;
-		let percentage = 0;
+		const submissions = await this.getSubmissionsForPeriod(subjectId, periodId, studentId);
+		let totalWeightedScore = 0;
+		let totalWeight = 0;
 
 		for (const submission of submissions) {
 			const assessment = await this.assessmentService.getAssessmentForActivity(submission.activityId);
+			if (!assessment) continue;
+
+			const weight = this.getAssessmentWeight(assessment.type, config.weightageDistribution);
+			const percentage = await this.calculateSubmissionPercentage(submission, assessment);
 			
-			if (assessment) {
-				const assessmentType = assessment.type as string;
-				switch (assessmentType) {
-					case 'MARKING_SCHEME':
-						percentage = await this.assessmentService.calculatePercentageFromMarkingScheme(
-							assessment.markingSchemeId!,
-							submission.obtainedMarks || 0,
-							submission.totalMarks || 0
-						);
-						break;
-					case 'RUBRIC':
-						const rubricSubmission = submission as ActivitySubmission & { rubricScores?: Record<string, number> };
-						if (rubricSubmission.rubricScores) {
-							const scores = Object.entries(rubricSubmission.rubricScores).map(([criteriaId, points]) => ({
-								criteriaId,
-								levelId: points.toString(), // Using points as levelId since we don't have actual levelId
-								points
-							}));
-							percentage = await this.assessmentService.calculatePercentageFromRubric(
-								assessment.rubricId!,
-								[scores]
-							);
-						}
-						break;
-					default:
-						percentage = ((submission.obtainedMarks || 0) / Math.max(1, submission.totalMarks || 0)) * 100;
-				}
-
-			}
-
-			totalObtained += submission.obtainedMarks || 0;
-			totalPossible += submission.totalMarks || 0;
+			totalWeightedScore += percentage * weight;
+			totalWeight += weight;
 		}
 
-		const finalPercentage = percentage || (totalPossible > 0 ? (totalObtained / totalPossible) * 100 : 0);
+		const finalPercentage = totalWeight > 0 ? totalWeightedScore / totalWeight : 0;
 		const gradePoints = await this.assessmentService.calculateGPA(finalPercentage, assessmentSystemId);
+		const isPassing = this.checkPassingCriteria(finalPercentage, submissions, config);
 
 		return {
 			periodId,
-			obtainedMarks: totalObtained,
-			totalMarks: totalPossible,
+			obtainedMarks: totalWeightedScore,
+			totalMarks: totalWeight * 100,
 			percentage: finalPercentage,
 			weight: period?.weight || 0,
-			isPassing: finalPercentage >= 50,
+			isPassing,
 			gradePoints
 		};
+
 	}
 
 	async calculateSubjectTermGrade(
