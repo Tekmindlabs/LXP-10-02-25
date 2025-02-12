@@ -54,9 +54,7 @@ export class GradeValidationService {
 		const attendanceRecords = await this.db.attendance.findMany({
 			where: {
 				studentId,
-				classSession: {
-					subjectId
-				}
+				subjectId
 			}
 		});
 
@@ -66,7 +64,8 @@ export class GradeValidationService {
 		return (presentCount / attendanceRecords.length) * 100;
 	}
 
-	async validateBatchOperation(grades: any[], config: SubjectAssessmentConfig): Promise<GradeValidationResult> {
+	async validateBatchOperation(config: SubjectAssessmentConfig): Promise<GradeValidationResult> {
+
 		const errors = [];
 
 		// Validate total weightage

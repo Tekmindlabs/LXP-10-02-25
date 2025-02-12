@@ -2,7 +2,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { SubjectGradeManager } from './SubjectGradeManager';
 import { TermManagementService } from "./TermManagementService";
 import { AssessmentService } from "./AssessmentService";
-import { SubjectAssessmentConfig, BatchProcessingConfig, GradeHistoryEntry } from '../../types/grades';
+import { BatchProcessingConfig } from '../../types/grades';
 import { GradeValidationService } from './GradeValidationService';
 
 type PrismaTransaction = Prisma.TransactionClient;
@@ -37,8 +37,8 @@ export class GradeBookService {
         this.subjectGradeManager = new SubjectGradeManager(db);
         this.termService = new TermManagementService(db);
         this.assessmentService = new AssessmentService(db);
-        this.validationService = new GradeValidationService(db);
     }
+
 
 
     async initializeGradeBook(classId: string): Promise<void> {
@@ -72,30 +72,12 @@ export class GradeBookService {
             throw new Error('Assessment system or term structure not found');
         }
 
-        // Create subject-specific configurations
-        const subjectConfigs = classData.classGroup.subjects.map(subject => ({
-            subjectId: subject.id,
-            weightageDistribution: subject.subjectConfig?.weightageDistribution ?? {
-                assignments: 30,
-                quizzes: 20,
-                exams: 40,
-                projects: 10
-            },
-            passingCriteria: subject.subjectConfig?.passingCriteria ?? {
-                minPercentage: 50,
-                requiredAssessments: [],
-                minAttendance: 75
-            },
-            gradeScale: assessmentSystem.gradeScale
-        }));
-
         await this.db.$transaction(async (tx) => {
             const gradeBook = await tx.gradeBook.create({
                 data: {
                     classId,
                     assessmentSystemId: assessmentSystem.id,
                     termStructureId: termStructure.id,
-                    subjectConfigs: subjectConfigs as any,
                     subjectRecords: {
                         create: classData.classGroup.subjects.map(subject => ({
                             subjectId: subject.id,
@@ -106,16 +88,16 @@ export class GradeBookService {
                 }
             });
 
-            // Initialize subject grade records with configurations
+            // Initialize subject grade records
             for (const subject of classData.classGroup.subjects) {
                 await this.subjectGradeManager.initializeSubjectGrades(
                     gradeBook.id,
                     subject,
-                    termStructure,
-                    subjectConfigs.find(config => config.subjectId === subject.id)
+                    termStructure
                 );
             }
         });
+
     }
 
     async createClassWithInheritance(classData: CreateClassInput): Promise<any> {
@@ -320,14 +302,12 @@ export class GradeBookService {
         termId: string,
         config: BatchProcessingConfig
     ): Promise<void> {
-        const students = await this.db.student.findMany({
+        const students = await this.db.user.findMany({
             where: {
-                enrollments: {
-                    some: {
-                        class: {
-                            gradeBook: {
-                                id: gradeBookId
-                            }
+                studentProfile: {
+                    class: {
+                        gradeBook: {
+                            id: gradeBookId
                         }
                     }
                 }
@@ -337,7 +317,7 @@ export class GradeBookService {
         for (let i = 0; i < students.length; i += config.batchSize) {
             const batch = students.slice(i, i + config.batchSize);
             await Promise.all(
-                batch.map(student => 
+                batch.map((student: { id: string }) => 
                     this.calculateCumulativeGrade(gradeBookId, student.id, termId)
                         .catch(error => {
                             console.error(`Failed to calculate grades for student ${student.id}:`, error);
@@ -346,11 +326,11 @@ export class GradeBookService {
                 )
             );
 
-            // Add delay between batches to prevent overload
             if (i + config.batchSize < students.length) {
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
+
     }
 
     async calculateSubjectGrade(

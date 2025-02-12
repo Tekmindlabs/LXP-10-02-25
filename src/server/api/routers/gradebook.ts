@@ -4,9 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { Permissions } from "@/utils/permissions";
 import { ActivitySubmission, ClassActivity as PrismaClassActivity } from "@prisma/client";
 import { GradeBookService } from "@/server/services/GradeBookService";
-import { AssessmentService } from "@/server/services/AssessmentService";
-import { TermManagementService } from "@/server/services/TermManagementService";
 import { SubjectGradeManager } from "@/server/services/SubjectGradeManager";
+
 
 type ActivityConfiguration = {
 	totalMarks: number;
@@ -351,11 +350,43 @@ export const gradebookRouter = createTRPCRouter({
 			try {
 				const subjectGradeManager = new SubjectGradeManager(ctx.prisma);
 				
+				const subjectConfig = await ctx.prisma.subjectConfig.findUnique({
+					where: { subjectId: input.subjectId }
+				});
+
+				if (!subjectConfig) {
+					throw new TRPCError({
+						code: 'NOT_FOUND',
+						message: 'Subject configuration not found',
+					});
+				}
+
 				const periodGrade = await subjectGradeManager.calculateAssessmentPeriodGrade(
 					input.subjectId,
 					input.periodId,
 					input.studentId,
-					input.assessmentSystemId
+					input.assessmentSystemId,
+					{
+						subjectId: input.subjectId,
+						weightageDistribution: subjectConfig.weightageDistribution as {
+							assignments: number;
+							quizzes: number;
+							exams: number;
+							projects: number;
+						},
+						passingCriteria: subjectConfig.passingCriteria as {
+							minPercentage: number;
+							requiredAssessments: string[];
+							minAttendance?: number;
+						},
+						gradeScale: subjectConfig.gradeScale as {
+							A: { min: number; max: number; points: number };
+							B: { min: number; max: number; points: number };
+							C: { min: number; max: number; points: number };
+							D: { min: number; max: number; points: number };
+							F: { min: number; max: number; points: number };
+						} | undefined
+					}
 				);
 
 				return periodGrade;
